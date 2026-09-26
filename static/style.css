@@ -218,36 +218,6 @@ table.truth { border-collapse: collapse; font-size: 0.8rem; min-width: 100%; }
 .truth thead th { color: var(--gold); font-family: var(--type); font-weight: 400; }
 .truth td small { display: block; color: var(--red); white-space: normal; max-width: 9rem; }
 
-/* ---------- choosing how to play ---------- */
-.seg { display: grid; grid-template-columns: 1fr 1fr; gap: 0.4rem; }
-.seg button { display: grid; gap: 0.15rem; min-height: 4.2rem; padding: 0.6rem 0.75rem; border: 0; border-radius: 0.95rem; background: var(--bg-2); text-align: left; box-shadow: var(--shadow), inset 0 0 0 1px var(--line); }
-.seg button b { font-size: 0.98rem; }
-.seg button small { color: var(--muted); font-size: 0.78rem; line-height: 1.3; }
-.seg button.on { background: var(--gold-soft); box-shadow: inset 0 0 0 2px var(--gold-2); }
-.seg button:disabled { cursor: default; }
-.seg button:disabled:not(.on) { opacity: 0.5; }
-.btn.danger { background: var(--red); color: #fff; box-shadow: 0 8px 20px -10px rgba(179, 38, 30, 0.8); }
-
-/* ---------- first person ---------- */
-#fp { max-width: 44rem; margin: 0 auto; padding: 0 1rem calc(4rem + env(safe-area-inset-bottom)); }
-body.walking #app { padding-bottom: 0.6rem; }
-.fp-view { position: relative; overflow: hidden; border-radius: 1.1rem; background: #1a1410; box-shadow: var(--shadow); touch-action: none; user-select: none; -webkit-user-select: none; }
-.fp-canvas { display: block; width: 100%; height: auto; aspect-ratio: 480 / 300; image-rendering: auto; }
-.fp-mini { position: absolute; top: 0.5rem; right: 0.5rem; width: 26%; max-width: 8rem; height: auto; border-radius: 0.4rem; opacity: 0.85; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4); pointer-events: none; }
-.fp-hud { position: absolute; top: 0.5rem; left: 0.5rem; display: flex; flex-wrap: wrap; gap: 0.3rem; max-width: 68%; pointer-events: none; }
-.fp-tag { padding: 0.2rem 0.55rem; border-radius: 999px; background: rgba(42, 31, 22, 0.72); color: #fff8ea; font-size: 0.78rem; font-weight: 700; }
-.fp-tag.gold { background: rgba(184, 134, 43, 0.9); color: #2a1f16; }
-.fp-tag.red { background: rgba(179, 38, 30, 0.9); }
-.fp-feed { position: absolute; left: 0.5rem; right: 0.5rem; bottom: 0.5rem; display: grid; gap: 0.25rem; justify-items: start; pointer-events: none; }
-.fp-note { max-width: 100%; padding: 0.3rem 0.65rem; border-radius: 0.6rem; background: rgba(255, 253, 248, 0.92); color: var(--ink); font-size: 0.82rem; font-weight: 600; animation: rise 0.25s var(--ease); }
-.fp-note.kill, .fp-note.found { background: rgba(179, 38, 30, 0.95); color: #fff; }
-.fp-note.take, .fp-note.put { background: rgba(251, 239, 210, 0.96); }
-.fp-note.move { opacity: 0.85; font-weight: 500; }
-.fp-stick { position: absolute; width: 5.5rem; height: 5.5rem; margin: -2.75rem 0 0 -2.75rem; border-radius: 50%; background: rgba(255, 255, 255, 0.14); box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.35); pointer-events: none; }
-.fp-stick i { position: absolute; left: 50%; top: 50%; width: 2.3rem; height: 2.3rem; margin: -1.15rem 0 0 -1.15rem; border-radius: 50%; background: rgba(255, 248, 234, 0.8); }
-.fp-cross { position: absolute; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 50%; background: rgba(255, 255, 255, 0.55); pointer-events: none; }
-.fp-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; min-height: 2.5rem; align-items: center; }
-
 /* ---------- sheets, toasts, loading ---------- */
 .overlay { position: relative; z-index: 20; }
 .sheet-scrim { position: fixed; inset: 0; z-index: 20; background: rgba(42, 31, 22, 0.35); backdrop-filter: blur(2px); animation: fade 0.2s; }

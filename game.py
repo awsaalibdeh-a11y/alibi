@@ -29,8 +29,6 @@ import time
 import requests
 from flask import Blueprint, jsonify, request
 
-import live
-
 log = logging.getLogger("alibi")
 bp = Blueprint("game", __name__)
 
@@ -81,8 +79,7 @@ BEATS = [
     {"text": "The lawyer's car crunches up the drive. The will is in his briefcase.", "fx": None},
 ]
 MIN_PLAYERS, MAX_PLAYERS, QUEUE_SIZE = 4, 8, 6
-T = {"countdown": 4, "roles": 14, "move": 20, "room": 60, "walk_hour": 60, "body": 12, "quiet": 8, "talk": 150, "vote": 35, "result": 9, "queue": 30}
-STYLES = ("classic", "live")                                          # pick-a-room hours, or walking the house in first person
+T = {"countdown": 4, "roles": 14, "move": 20, "room": 60, "body": 12, "quiet": 8, "talk": 150, "vote": 35, "result": 9, "queue": 30}
 ROOMS_FOR = {4: 3, 5: 4, 6: 4, 7: 5, 8: 6}                            # guests -> rooms: few enough that people keep meeting
 ROOM_ORDER = ["library", "kitchen", "garden", "study", "ballroom", "cellar"]
 HUMAN_KILLER_WEIGHT = 2.5                                             # people get the knife more often than bots do
@@ -90,7 +87,7 @@ BOT_LIAR_SKILL = 0.25                                                 # how ofte
 
 LOCK = threading.RLock()
 GAMES = {}
-QUEUE = {style: None for style in STYLES}                             # one public queue per style
+QUEUE = {"code": None}
 
 
 def now():
@@ -111,9 +108,9 @@ def _cleanup():
         del GAMES[c]
 
 
-def new_game(public=False, style="classic"):
+def new_game(public=False):
     _cleanup()
-    g = {"code": _code(), "public": public, "style": style if style in STYLES else "classic", "created": now(), "touched": now(), "v": 0, "phase": "lobby", "deadline": None,
+    g = {"code": _code(), "public": public, "created": now(), "touched": now(), "v": 0, "phase": "lobby", "deadline": None,
          "players": [], "host": None, "day": 0, "hour": 0, "days": [], "items": {}, "carry": {}, "winner": None, "start_at": None,
          "dms": [], "signals": {}}
     GAMES[g["code"]] = g
@@ -220,9 +217,6 @@ def new_day(g, showdown=False):
     g["days"].append({"n": g["day"], "hours": [], "beats": beats, "moves": {}, "acts": {}, "cur": None, "kill": None, "found": None,
                       "chat": [], "roomchat": {}, "votes": {}, "ready": set(), "claims": {}, "ejected": None, "bot_plan": [], "missing": [],
                       "bot_room_said": set(), "showdown": showdown, "kills": []})
-    if g.get("style") == "live":                                       # first person: the whole day is one long walk
-        live.begin(g, today(g))
-        return set_phase(g, "walk", live.day_len(today(g)))
     set_phase(g, "move", T["move"])
 
 
@@ -476,9 +470,6 @@ def suspicion(g, me):
         k = d["kill"]
         if k and claim.get(str(k["hour"])) == k["room"]:
             score[q] += 1
-    for k in d.get("kills") or ([d["kill"]] if d["kill"] else []):     # first person: you saw them do it
-        if me["pid"] in k.get("witnesses", ()) and k["killer"] in score:
-            score[k["killer"]] += 10
     mentions = {q: 0 for q in score}
     for msg in d["chat"][-30:]:
         if msg.get("ghost") or msg["pid"] == me["pid"]:
@@ -510,8 +501,6 @@ def is_dark(hr_or_beat, room):
 
 def my_day(g, p, d):
     """The day as this player lived it: where they were, who they saw, what they saw happen."""
-    if d.get("live"):
-        return live.my_day(g, p, d)
     out = []
     for i, hr in enumerate(d["hours"]):
         room = hr["where"].get(p["pid"])
@@ -565,21 +554,14 @@ def view(g, p):
          "me": {"pid": p["pid"], "name": p["name"], "role": p["role"], "alive": p["alive"], "host": p["pid"] == g["host"], "carrying": g["carry"].get(p["pid"]),
                 "ejected": p.get("ejected", False), "char": p.get("char"), "voice": p.get("voice", False)},
          "dms": [m for m in g["dms"] if p["pid"] in (m["from"], m["to"])][-120:]}
-    v["style"] = g.get("style", "classic")
-    if v["style"] == "live":
-        v["house"] = live.info(g)
-    walking = bool(d and d.get("live") and g["phase"] == "walk")
     ty = {q: x["ctx"] for q, x in g.get("typing", {}).items() if q != p["pid"] and now() - x["t"] < 12 and player(g, q)}
     room_key = f"{g['hour']}:{d['cur']['where'].get(p['pid'])}" if d and g["phase"] == "room" and d.get("cur") else None
-    here_ctx = ("walk", d["live"]["loc"].get(p["pid"])) if walking and p["alive"] else ("room", room_key) if room_key else None
     v["typing"] = {"dm": [q for q, c in ty.items() if c == ("dm", p["pid"])],
                    "meet": [name_of(g, q) for q, c in ty.items() if c == ("meet",) and (player(g, q)["alive"] or dead or over)],
-                   "room": [name_of(g, q) for q, c in ty.items() if here_ctx and c == here_ctx]}
+                   "room": [name_of(g, q) for q, c in ty.items() if room_key and c == ("room", room_key)]}
     if d:
         v["myday"] = my_day(g, p, d)
-        v["beat"] = beat(g) if g["phase"] in ("move", "room", "walk") else None
-        if walking:
-            v["near"] = live.near(g, d, p)
+        v["beat"] = beat(g) if g["phase"] in ("move", "room") else None
         v["myvote"] = d["votes"].get(p["pid"])
         v["readyToVote"] = p["pid"] in d["ready"]
         v["chat"] = [m for m in d["chat"] if dead or over or not m.get("ghost")][-80:]
@@ -620,7 +602,7 @@ def view(g, p):
 def truth(g):
     out = []
     for d in g["days"]:
-        grid = [{"hour": HOURS[i], "rows": [{"name": name_of(g, q), "room": "Hall" if q in hr.get("hall", ()) else ROOM[r]["name"],
+        grid = [{"hour": HOURS[i], "rows": [{"name": name_of(g, q), "room": ROOM[r]["name"],
                                              "did": "; ".join(e["text"] for e in hr["events"][r] if e["pid"] == q)} for q, r in hr["where"].items()]}
                 for i, hr in enumerate(d["hours"])]
         kills = d.get("kills") or ([d["kill"]] if d["kill"] else [])
@@ -638,9 +620,8 @@ def tick(g):
             while len(g["players"]) < QUEUE_SIZE:
                 add_bot(g)
             g["start_at"] = None
-            for style, code in QUEUE.items():
-                if code == g["code"]:
-                    QUEUE[style] = None
+            if QUEUE["code"] == g["code"]:
+                QUEUE["code"] = None
             return start(g)
         hs = humans(g)
         if not g["public"] and hs and all(p["ready"] for p in hs):
@@ -655,8 +636,6 @@ def tick(g):
             bump(g)
         return
     d = today(g)
-    if g["phase"] == "walk":
-        return live.tick(g, d)
     if g["phase"] == "move":
         waiting = [p for p in humans(g, alive_only=True) if p["pid"] not in d["moves"]]
         if t >= g["deadline"] or not waiting:
@@ -743,7 +722,7 @@ def bot_brief(g, p):
     if d:
         public = (f"{name_of(g, k['victim'])} was found dead in the {ROOM[k['room']]['name']}, killed around {HOURS[k['hour']]}, {CAUSE[KIND[k['weapon']]]}. "
                   if k and d["found"] else "") + ("Missing objects: " + ", ".join(d["missing"]) + ". " if d["missing"] else "")
-    seen = "; ".join(f"{e['hour']} in the {ROOM[e['room']]['name'] if e['room'] in ROOM else 'hall'} with {', '.join(e['saw']) or 'nobody'}" + (f" ({' '.join(e['events'])})" if e["events"] else "")
+    seen = "; ".join(f"{e['hour']} in the {ROOM[e['room']]['name']} with {', '.join(e['saw']) or 'nobody'}" + (f" ({' '.join(e['events'])})" if e["events"] else "")
                      for e in my_day(g, p, d)) if d else ""
     role = ("You are secretly the KILLER" + (f" (you killed {name_of(g, k['victim'])} at {HOURS[k['hour']]} in the {ROOM[k['room']]['name']})" if k and k['killer'] == p['pid'] else "")
             + ". Never admit it; calmly steer suspicion elsewhere.") if p["role"] == "killer" else "You are an innocent guest trying to find the killer."
@@ -972,23 +951,22 @@ def _ice():
 
 @bp.get("/api/status")
 def status():
-    return jsonify(ai=bool(os.environ.get("OPENAI_API_KEY")), games=len(GAMES), queue={s: bool(c and c in GAMES) for s, c in QUEUE.items()}, ice=_ice())
+    return jsonify(ai=bool(os.environ.get("OPENAI_API_KEY")), games=len(GAMES), queue=bool(QUEUE["code"] and QUEUE["code"] in GAMES), ice=_ice())
 
 
 @bp.post("/api/play")
 def play():
     body = request.get_json(silent=True) or {}
     name, mode = _clean_name(body.get("name")), body.get("mode")
-    style = body.get("style") if body.get("style") in STYLES else "classic"
     with LOCK:
         if mode == "bots":
-            g = new_game(style=style)
+            g = new_game()
             p = add_player(g, name)
             for _ in range(max(3, min(7, int(body.get("bots") or 5)))):
                 add_bot(g)
             start(g)
         elif mode == "create":
-            g = new_game(style=style)
+            g = new_game()
             p = add_player(g, name)
         elif mode == "join":
             g = GAMES.get(str(body.get("code") or "").upper().strip())
@@ -1000,10 +978,10 @@ def play():
                 return _err("That game is full.", 409)
             p = add_player(g, name)
         elif mode == "queue":
-            g = GAMES.get(QUEUE[style]) if QUEUE[style] else None
+            g = GAMES.get(QUEUE["code"]) if QUEUE["code"] else None
             if not g or g["phase"] != "lobby" or len(g["players"]) >= MAX_PLAYERS:
-                g = new_game(public=True, style=style)
-                QUEUE[style] = g["code"]
+                g = new_game(public=True)
+                QUEUE["code"] = g["code"]
             p = add_player(g, name)
             p["ready"] = True
             if g["start_at"] is None:
@@ -1046,23 +1024,6 @@ def state(code):
         return jsonify({**view(g, p), "signals": sig})
 
 
-@bp.post("/api/game/<code>/walk")
-def walk(code):
-    """First person, several times a second: where I've walked to, and what I can see from here."""
-    with LOCK:
-        g, p, err = _auth(code)
-        if err:
-            return err
-        tick(g)
-        d = today(g)
-        if g["phase"] != "walk" or not d or not d.get("live"):
-            return jsonify(phase=g["phase"], v=g["v"], now=now())
-        body = request.get_json(silent=True) or {}
-        if "x" in body:
-            live.move(g, d, p, body.get("x"), body.get("y"), body.get("a"))
-        return jsonify(live.snapshot(g, d, p))
-
-
 @bp.post("/api/game/<code>")
 def act(code):
     with LOCK:
@@ -1071,7 +1032,7 @@ def act(code):
             return err
         tick(g)
         body = request.get_json(silent=True) or {}
-        kind = str(body.get("type") or "")
+        kind = body.get("type")
         d = today(g)
         if kind == "signal":
             to = player(g, body.get("to"))
@@ -1087,17 +1048,6 @@ def act(code):
         elif kind == "ready" and g["phase"] == "lobby":
             p["ready"] = bool(body.get("on"))
             bump(g)
-        elif kind == "style" and g["phase"] == "lobby" and p["pid"] == g["host"] and body.get("style") in STYLES:
-            g["style"] = body["style"]
-            bump(g)
-        elif kind.startswith("walk:") and g["phase"] == "walk" and d and d.get("live"):
-            what = kind[5:]
-            fn = {"take": lambda: live.take(g, d, p, body.get("item")), "put": lambda: live.put(g, d, p), "strike": lambda: live.strike(g, d, p, body.get("target")),
-                  "lock": lambda: live.lock(g, d, p), "unlock": lambda: live.unlock(g, d, p), "report": lambda: live.report(g, d, p),
-                  "say": lambda: live.speak(g, d, p, _s(body.get("text"), 200)) if _s(body.get("text"), 200) else "Say something."}.get(what)
-            problem = fn() if fn else "You can't do that."
-            if isinstance(problem, str):
-                return _err(problem, 409)
         elif kind == "bots" and g["phase"] == "lobby" and p["pid"] == g["host"]:
             want = max(0, min(MAX_PLAYERS - len(humans(g)), int(body.get("n") or 0)))
             bots = [q for q in g["players"] if q["bot"]]
@@ -1150,11 +1100,11 @@ def act(code):
                     d["bot_room_said"].add((key, q))
                     typing(g, q, ("room", key))
                     _spawn(bot_room_reply, g, q, key)
-        elif kind == "chat" and d and g["phase"] in ("talk", "vote", "result", "body", "quiet", "over", "move", "room", "walk"):
+        elif kind == "chat" and d and g["phase"] in ("talk", "vote", "result", "body", "quiet", "over", "move", "room"):
             text = _s(body.get("text"), 200)
             if not text:
                 return _err("Say something.")
-            if p["alive"] and g["phase"] in ("move", "room", "walk"):
+            if p["alive"] and g["phase"] in ("move", "room"):
                 return _err("The meeting hasn't started: talk to the people in your room, or send a private message.")
             last = [m for m in d["chat"] if m["pid"] == p["pid"]]
             if last and now() - last[-1]["t"] < 1:
@@ -1164,8 +1114,7 @@ def act(code):
         elif kind == "typing":
             c = str(body.get("ctx") or "")
             ctx = (("meet",) if c == "meet" else ("dm", c[3:]) if c.startswith("dm:")
-                   else ("room", f"{g['hour']}:{d['cur']['where'].get(p['pid'])}") if c == "room" and g["phase"] == "room" and d and d.get("cur")
-                   else ("walk", d["live"]["loc"].get(p["pid"])) if c == "room" and g["phase"] == "walk" and d and d.get("live") else None)
+                   else ("room", f"{g['hour']}:{d['cur']['where'].get(p['pid'])}") if c == "room" and g["phase"] == "room" and d and d.get("cur") else None)
             if not ctx:
                 return _err("Nothing to type into.")
             typing(g, p["pid"], ctx)
