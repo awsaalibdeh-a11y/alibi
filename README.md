@@ -1,16 +1,24 @@
-# Alibi
+# Alibi: The Wrenmoor Weekend
 
 A murder party game where **the killer is one of the players**, each on their own phone. 4 to 8 players; bots fill
 the empty chairs.
 
-- **A normal day at the manor.** Every hour (5 of them, 30 seconds each) everyone secretly picks a room and something to
-  do there. Anyone can pick up the things lying around: the candlestick, the rope, the kitchen knife…
-- **The killer** (two in a game of 7 or 8), once armed, picks a target and a room to hunt them in. If the gamble pays
-  off and the target is really there, they strike — even in front of others, though a crowd means witnesses find the
-  body on the spot, while a solo kill stays deniable until someone walks in later (or it's found at dusk).
+- **A story.** Lord Ashcombe's will is read at dusk. Every guest gets a character (the Heir, the Doctor, the Actress…),
+  and every hour has a story beat: some just colour the day, some change it (a power cut leaves a room pitch dark and
+  hides who's in it; rain locks the garden).
+- **Every hour, two steps.** Move: pick a room. Then the room: see who came, talk to them (typing or voice), and choose
+  what to do: an activity, look around (who was here the hour before), take or put back an object.
+- **Small games** (4-5 players) use four rooms so people meet more often.
+- **The killer** (two in a game of 7 or 8) strikes when they are alone with someone and already carrying a weapon.
+  Walk into that room later and you find the body; otherwise it's found at dusk.
 - **Look back.** You only know what you saw yourself (who was with you, who took what). Everyone sees where the body
   lay, roughly when and how they died, and what's missing from the house.
-- **Talk and vote.** Two minutes of chat: share your day (the killer can lie about theirs), argue, then vote someone
+- **Private messages** to anyone (bots answer in character). **Proximity voice:** with the mic on, you hear whoever's in
+  the same room during the day, and everyone at the meeting (peer to peer, WebRTC; set `TURN_URL`, `TURN_USER`,
+  `TURN_PASS` for networks that block direct connections).
+- **The final showdown.** When the killers catch up with the guests there's no instant loss: one last day with no
+  meeting, where the killer can strike every hour and any guest alive at dusk wins it for the guests.
+- **Talk and vote.** Two and a half minutes of chat: share your day (the killer can lie about theirs), argue, then vote someone
   out. Catch every killer to win; if the killers ever match the rest, they win. The dead become ghosts who see
   everything and can only talk to each other.
 - **Ways to play:** start a game and send the family the code or link (it starts when everyone taps Ready), find a

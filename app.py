@@ -35,7 +35,7 @@ def headers(resp):
     h.setdefault("X-Content-Type-Options", "nosniff")
     h.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
     h.setdefault("X-Frame-Options", "DENY")
-    h.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=(), interest-cohort=()")
+    h.setdefault("Permissions-Policy", "camera=(), microphone=(self), geolocation=(), interest-cohort=()")
     if request.headers.get("X-Forwarded-Proto", request.scheme) == "https":
         h.setdefault("Strict-Transport-Security", "max-age=31536000")
     return resp
@@ -59,7 +59,7 @@ def index():
 @app.route("/manifest.webmanifest")
 def manifest():
     body = {"name": "Alibi", "short_name": "Alibi", "description": "A murder party game: one of you is the killer.",
-            "start_url": "/", "display": "standalone", "background_color": "#16120f", "theme_color": "#16120f",
+            "start_url": "/", "display": "standalone", "background_color": "#f6efe2", "theme_color": "#f6efe2",
             "icons": [{"src": "/static/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any"}]}
     return app.response_class(__import__("json").dumps(body), mimetype="application/manifest+json")
 
