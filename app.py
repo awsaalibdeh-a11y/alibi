@@ -1,7 +1,6 @@
-"""Alibi: a murder mystery for 1 to 4 players passing one phone around.
+"""Alibi: a murder party game where the killer is one of the players, each on their own phone.
 
-The server hands over the page and runs the case (mystery.py): it writes a new case with AI, seals the answer so the
-phone can't read it, and plays the suspects. Everything about the game in progress lives in the browser.
+The server hands over the page and runs every game (game.py): rooms, the clock, what each phone may see, the bots.
 """
 
 import logging
@@ -18,7 +17,7 @@ BASE = os.path.dirname(os.path.abspath(__file__))
 app = Flask(__name__)
 app.config["TEMPLATES_AUTO_RELOAD"] = True
 
-from mystery import bp  # noqa: E402  (after load_dotenv)
+from game import bp  # noqa: E402  (after load_dotenv)
 
 app.register_blueprint(bp)
 
@@ -59,7 +58,7 @@ def index():
 
 @app.route("/manifest.webmanifest")
 def manifest():
-    body = {"name": "Alibi", "short_name": "Alibi", "description": "A murder mystery for 1-4 players on one phone.",
+    body = {"name": "Alibi", "short_name": "Alibi", "description": "A murder party game: one of you is the killer.",
             "start_url": "/", "display": "standalone", "background_color": "#16120f", "theme_color": "#16120f",
             "icons": [{"src": "/static/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any"}]}
     return app.response_class(__import__("json").dumps(body), mimetype="application/manifest+json")

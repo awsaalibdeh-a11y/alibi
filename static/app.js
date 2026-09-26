@@ -1,593 +1,466 @@
-/* Alibi: the game. One phone, 1 to 4 detectives, taking turns.
+/* Alibi: the phone. Each player's phone shows only their own view of the game, polled from the server once a second.
 
-   A turn is one move: question a suspect (up to 3 questions), search a place (one clue), or try to solve the case.
-   In Rivals mode each detective has a private notebook and the phone is passed between turns behind a "pass to…"
-   screen; in Team mode everyone shares one notebook. The case's answer never reaches the phone: the server keeps it
-   sealed inside `token` and only says right or wrong. The whole game is saved after every move, so a reload or a
-   closed tab picks up where it left off. */
+   Screens follow the game's phase: home → lobby → your secret role → the day (pick a room each hour) → the body →
+   look back and argue in the chat → vote → the result → the next day, or the end with the whole truth. */
 "use strict";
 
-/* ---------- helpers ---------- */
 const $app = document.getElementById("app");
-const KEY = "alibi.v1";
-const COLORS = ["#e8c46a", "#6fb7e0", "#e27d8e", "#86cf8e"];
-const MUGS = ["#7a4b3a", "#3f5d6e", "#5d4a70", "#56663d", "#7a6a3a"];
-const SETTINGS = [
-  ["random", "🎲", "Surprise me"], ["manor", "🏰", "Country manor"], ["train", "🚂", "Sleeper train"], ["film", "🎬", "Film set"],
-  ["resort", "🏜️", "Desert resort"], ["liner", "🚢", "Ocean liner"], ["museum", "💎", "Museum gala"], ["lodge", "🏔️", "Ski lodge"], ["kitchen", "🍽️", "Restaurant"],
-];
-const LOADING = ["Choosing a victim…", "Inviting the suspects…", "Giving everyone a secret…", "Hiding the weapon…", "Planting clues…",
-  "Laying a few red herrings…", "Checking every alibi…", "Sealing the envelope…"];
+const ME = "alibi.me";
+const POLL = 1000;
 
+/* ---------- helpers ---------- */
 function h(tag, attrs, ...kids) {
   const el = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs || {})) {
     if (v == null || v === false) continue;
     if (k.startsWith("on")) el.addEventListener(k.slice(2).toLowerCase(), v);
     else if (k === "class") el.className = v;
-    else if (k === "html") el.innerHTML = v;                 // only ever our own icon markup
+    else if (k === "html") el.innerHTML = v;                 // only ever our own markup
     else if (k === "style" && typeof v === "object") for (const [prop, val] of Object.entries(v)) { if (prop.startsWith("--")) el.style.setProperty(prop, val); else el.style[prop] = val; }
     else el.setAttribute(k, v === true ? "" : v);
   }
   for (const kid of kids.flat(Infinity)) if (kid != null && kid !== false) el.append(kid.nodeType ? kid : String(kid));
   return el;
 }
-const ICONS = {
-  back: '<path d="M15 5l-7 7 7 7"/>',
-  book: '<path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 19V5M8 7h7"/>',
-  talk: '<path d="M4 5h16v10H9l-5 4z"/><path d="M8 9h8M8 12h5"/>',
-  search: '<circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/>',
-  gavel: '<path d="M14 4l6 6M11 7l6 6M12.5 5.5l-6 6 3 3 6-6M8 13l-5 5 2 2 5-5M13 21h8"/>',
-  x: '<path d="M6 6l12 12M18 6L6 18"/>',
-  home: '<path d="M4 11l8-7 8 7v9H4z"/><path d="M10 20v-6h4v6"/>',
-  lens: '<circle cx="27" cy="27" r="13" fill="none" stroke="#e8c46a" stroke-width="5"/><path d="M36.5 36.5 L50 50" stroke="#e8c46a" stroke-width="7" stroke-linecap="round"/><circle cx="27" cy="27" r="4" fill="#c7402f" stroke="none"/>',
-};
-const icon = (name) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`;
-const ibtn = (name, label, onClick) => h("button", { class: "ibtn", type: "button", "aria-label": label, title: label, html: icon(name), onClick });
-const initials = (name) => String(name).split(/\s+/).filter(Boolean).map((w) => w[0]).slice(0, 2).join("").toUpperCase();
-const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
-const mug = (s) => h("span", { class: "mug", style: { "--m": MUGS[(+String(s.id).slice(1) - 1) % MUGS.length] }, "aria-hidden": "true" }, initials(s.name));
-const dot = (p) => h("span", { class: "dot", style: { "--c": p.color }, "aria-hidden": "true" }, initials(p.name).slice(0, 1));
-
-function toast(msg, ms = 2600) {
+function toast(msg, ms = 2800) {
   const t = document.getElementById("toast");
-  t.textContent = msg;
-  t.hidden = false;
-  clearTimeout(toast.t);
-  toast.t = setTimeout(() => { t.hidden = true; }, ms);
+  t.textContent = msg; t.hidden = false;
+  clearTimeout(toast.t); toast.t = setTimeout(() => { t.hidden = true; }, ms);
 }
-/** *stage directions* in a suspect's answer become italics; everything else stays plain text. */
-function speech(text) {
-  return String(text).split(/(\*[^*]+\*)/g).filter(Boolean).map((part) => (/^\*[^*]+\*$/.test(part) ? h("em", {}, part.slice(1, -1)) : part));
+const LENS = '<svg viewBox="0 0 64 64"><circle cx="27" cy="27" r="13" fill="none" stroke="#e8c46a" stroke-width="5"/><path d="M36.5 36.5 L50 50" stroke="#e8c46a" stroke-width="7" stroke-linecap="round"/><circle cx="27" cy="27" r="4" fill="#c7402f"/></svg>';
+
+/* a face drawn from a name: the same player always looks the same */
+function portrait(name) {
+  let seed = 7;
+  for (const ch of String(name)) seed = (seed * 31 + ch.charCodeAt(0)) >>> 0;
+  const rnd = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+  const pick = (a) => a[Math.floor(rnd() * a.length)];
+  const skin = pick(["#f1d3b8", "#e8b996", "#d49a74", "#b67a52", "#8d5a3b", "#6a4029"]);
+  const hair = pick(["#1f1712", "#3b2a1e", "#6b4a2b", "#a0692f", "#c9a063", "#7a2e1d", "#2b2b2b", "#d8d4cc"]);
+  const coat = pick(["#2e3b4e", "#4a2f2a", "#2f4436", "#3d3d3d", "#5a4a2a", "#46304f", "#1f2a33"]);
+  const style = pick(["short", "short", "long", "bob", "bald", "curly", "slick", "bun"]);
+  const hairBack = style === "long" ? `<path d="M15 32 Q13 58 20 62 L40 62 Q47 58 45 32 Z" fill="${hair}"/>` : style === "bob" ? `<path d="M15 30 Q14 50 19 51 L41 51 Q46 50 45 30 Z" fill="${hair}"/>` : "";
+  const top = {
+    short: `<path d="M17 30 Q18 16 30 16 Q42 16 43 30 Q40 22 30 22 Q20 22 17 30Z" fill="${hair}"/>`,
+    long: `<path d="M16 32 Q16 15 30 15 Q44 15 44 32 Q40 21 30 21 Q20 21 16 32Z" fill="${hair}"/>`,
+    bob: `<path d="M16 32 Q16 15 30 15 Q44 15 44 32 Q38 20 26 22 Q20 24 16 32Z" fill="${hair}"/>`,
+    bald: `<path d="M17 29 Q17 25 19 24 M43 29 Q43 25 41 24" stroke="${hair}" stroke-width="2.5" fill="none"/>`,
+    curly: [18, 23, 28, 33, 38, 42].map((x, i) => `<circle cx="${x}" cy="${20 + (i % 2) * 2}" r="5" fill="${hair}"/>`).join(""),
+    slick: `<path d="M17 29 Q16 16 31 16 Q44 17 43 29 Q37 19 22 23Z" fill="${hair}"/>`,
+    bun: `<circle cx="30" cy="12" r="5" fill="${hair}"/><path d="M17 30 Q18 16 30 16 Q42 16 43 30 Q40 21 30 21 Q20 21 17 30Z" fill="${hair}"/>`,
+  }[style];
+  const b = pick([0, -2, 2]);
+  const extras = (rnd() < 0.28 ? `<circle cx="25" cy="35" r="3.6" fill="none" stroke="#1b130e" stroke-width="1.2"/><circle cx="35" cy="35" r="3.6" fill="none" stroke="#1b130e" stroke-width="1.2"/><path d="M28.6 35h2.8" stroke="#1b130e" stroke-width="1.2"/>` : "")
+    + (rnd() < 0.2 ? `<path d="M25 42 Q30 40 35 42 Q30 44 25 42Z" fill="${hair}"/>` : "")
+    + (rnd() < 0.16 ? `<path d="M13 22 L47 22 L42 18 Q41 9 30 9 Q19 9 18 18Z" fill="#1c1a18"/><rect x="18" y="16.5" width="24" height="2.2" fill="#6b1f16"/>` : "");
+  return `<svg viewBox="0 0 60 70" aria-hidden="true">${hairBack}<rect x="25" y="47" width="10" height="9" fill="${skin}"/><path d="M8 70 Q10 55 30 54 Q50 55 52 70Z" fill="${coat}"/>`
+    + `<ellipse cx="30" cy="35" rx="13" ry="15.5" fill="${skin}"/><ellipse cx="17" cy="36" rx="2" ry="3" fill="${skin}"/><ellipse cx="43" cy="36" rx="2" ry="3" fill="${skin}"/>${top}`
+    + `<path d="M22 ${31 + b} l5 ${-b}" stroke="#2a1d14" stroke-width="1.6"/><path d="M38 ${31 + b} l-5 ${-b}" stroke="#2a1d14" stroke-width="1.6"/><circle cx="25" cy="35" r="1.5" fill="#1b130e"/><circle cx="35" cy="35" r="1.5" fill="#1b130e"/>`
+    + `<path d="M26 45 Q30 ${45 + pick([2, 0, -2])} 34 45" stroke="#6b3a2c" stroke-width="1.5" fill="none"/>${extras}</svg>`;
 }
+const face = (p, cls = "") => h("span", { class: `face ${cls}${p.alive === false ? " dead" : ""}`, style: { "--c": p.color || "#e8c46a" }, html: portrait(p.name), "aria-hidden": "true" });
 
-async function api(path, body) {
-  const res = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || "Something went wrong. Try again.");
-  return data;
-}
-
-/* ---------- state ---------- */
-let G = load();
-let view = { name: "home" };           // what's on screen now (not saved)
-
-function load() { try { const g = JSON.parse(localStorage.getItem(KEY) || "null"); return g && g.v === 1 ? g : null; } catch { return null; } }
-function save() { try { if (G) localStorage.setItem(KEY, JSON.stringify(G)); else localStorage.removeItem(KEY); } catch { /* private mode: the game still runs */ } }
-
-const player = () => G.players[G.turn];
-const solo = () => G.players.length === 1;
-const team = () => G.mode === "team" || solo();
-/** Whose notebook the current detective writes in. */
-const bookOf = (i = G.turn) => G.books[team() ? "team" : String(i)];
-const suspect = (id) => G.case.suspects.find((s) => s.id === id);
-const place = (id) => G.case.places.find((p) => p.id === id);
-const active = () => G.players.map((p, i) => i).filter((i) => !G.players[i].out);
-
-function newBook() { return { clues: [], talks: {}, marks: {}, jot: "", found: {} }; }
-
-function go(name, extra = {}) { view = { name, ...extra }; render(); window.scrollTo({ top: 0 }); }
-
-function logEvent(text) { G.log.push({ round: G.round, text }); G.log = G.log.slice(-30); }
-
-/* ---------- the flow of turns ---------- */
-function startTurn() {
-  G.acted = false;
-  showTurn();
-}
-/** Hand the phone over (Rivals) or straight to the turn. A reload lands here too, keeping whether the move was made. */
-function showTurn() {
-  save();
-  if (!team() && G.players.length > 1) go("pass");
-  else go("turn");
-}
-/** The move is made: next detective, next round, or the final accusations. */
-function endTurn() {
-  if (!active().length) return finish();
-  let next = G.turn;
-  do {                                                                     // the next detective still in the game
-    next = (next + 1) % G.players.length;
-    if (next === 0) G.round++;                                             // back to the first seat: a new round
-  } while (G.players[next].out);
-  G.turn = next;
-  if (G.round > G.rounds) return beginFinal();
-  startTurn();
-}
-
-function beginFinal() {
-  G.phase = "final";
-  G.finalQueue = active();
-  save();
-  nextFinal();
-}
-function nextFinal() {
-  if (!G.finalQueue.length) return finish();
-  G.turn = G.finalQueue[0];
-  save();
-  if (!team() && G.players.length > 1) go("pass", { final: true });
-  else go("solve", { final: true });
-}
-
-async function finish() {
-  G.phase = "reveal";
-  save();
-  go("revealing");
+/* ---------- sound: made on the spot, no files ---------- */
+const sound = { on: localStorage.getItem("alibi.sound") !== "off", ctx: null };
+function sfx(kind) {
+  if (!sound.on) return;
   try {
-    G.answer = await api("/api/reveal", { token: G.token });
-    save();
-    go("reveal");
-  } catch (e) {
-    go("reveal", { error: e.message });
+    const ctx = (sound.ctx ||= new (window.AudioContext || window.webkitAudioContext)());
+    const t = ctx.currentTime;
+    const tone = (f, at, dur, type = "sine", vol = 0.12) => {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = type; o.frequency.setValueAtTime(f, t + at);
+      g.gain.setValueAtTime(0.0001, t + at); g.gain.exponentialRampToValueAtTime(vol, t + at + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + at + dur);
+      o.connect(g).connect(ctx.destination); o.start(t + at); o.stop(t + at + dur + 0.05);
+    };
+    const noise = (at, dur, vol, freq) => {
+      const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * dur), ctx.sampleRate), d = buf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, 2);
+      const src = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+      src.buffer = buf; f.type = "lowpass"; f.frequency.value = freq; g.gain.value = vol;
+      src.connect(f).connect(g).connect(ctx.destination); src.start(t + at);
+    };
+    ({
+      tick: () => tone(880, 0, 0.08, "square", 0.03),
+      hour: () => { tone(523, 0, 0.3); tone(784, 0.1, 0.4); },
+      scream: () => { noise(0, 1.6, 0.8, 500); tone(880, 0, 0.9, "sawtooth", 0.05); tone(660, 0.3, 1.0, "sawtooth", 0.04); },
+      msg: () => tone(1200, 0, 0.07, "triangle", 0.05),
+      vote: () => { tone(330, 0, 0.2, "triangle"); tone(262, 0.18, 0.4, "triangle"); },
+      win: () => [523, 659, 784, 1047].forEach((f, i) => tone(f, i * 0.12, 0.45, "triangle", 0.1)),
+      lose: () => { tone(220, 0, 0.4, "sawtooth", 0.06); tone(165, 0.3, 0.8, "sawtooth", 0.06); },
+      role: () => { tone(110, 0, 1.2, "sawtooth", 0.05); tone(165, 0.2, 1.1, "sawtooth", 0.04); },
+    })[kind]?.();
+  } catch { /* no audio */ }
+}
+const soundBtn = () => h("button", { class: "ibtn", type: "button", "aria-label": sound.on ? "Sound on" : "Sound off", title: sound.on ? "Sound on" : "Sound off",
+  onClick: () => { sound.on = !sound.on; try { localStorage.setItem("alibi.sound", sound.on ? "on" : "off"); } catch { /* ignore */ } render(); } }, sound.on ? "🔊" : "🔇");
+
+/* ---------- connection ---------- */
+// this tab's seat first (two tabs are two players); the last seat on this phone lets a closed browser rejoin
+let me = (() => { try { return JSON.parse(sessionStorage.getItem(ME) || localStorage.getItem(ME) || "null"); } catch { return null; } })();
+let S = null;                   // the latest view from the server
+let clockSkew = 0;              // server time minus ours
+let ui = { tab: "chat", room: null, act: null, take: null, put: false, strike: false, revealed: false, draft: null, changing: false };
+let lastPhaseKey = "";
+
+const saveMe = () => {
+  try {
+    for (const store of [sessionStorage, localStorage]) { if (me) store.setItem(ME, JSON.stringify(me)); else store.removeItem(ME); }
+  } catch { /* ignore */ }
+};
+async function post(path, body) {
+  const r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw Object.assign(new Error(d.error || "Something went wrong."), { status: r.status });
+  return d;
+}
+async function act(type, extra = {}) {
+  try {
+    const d = await post(`/api/game/${me.code}`, { pid: me.pid, token: me.token, type, ...extra });
+    if (type === "choose") ui.changing = false;
+    accept(d);
+  } catch (e) { toast(e.message); }
+}
+function accept(d) {
+  if (d.now) clockSkew = d.now * 1000 - Date.now();
+  if (d.same) return;
+  const before = S;
+  S = d;
+  const key = `${d.phase}|${d.day}|${d.hour}`;
+  if (key !== lastPhaseKey) {                                   // a new phase: reset what was half-picked and make a sound
+    lastPhaseKey = key;
+    ui = { ...ui, room: null, act: null, take: null, put: false, strike: false, draft: null, changing: false };
+    if (d.phase === "roles") ui.revealed = false;
+    if (before) sfx({ roles: "role", day: "hour", body: "scream", vote: "vote", over: d.winner && ((d.winner === "killers") === (d.me.role === "killer")) ? "win" : "lose" }[d.phase] || "tick");
+    window.scrollTo({ top: 0 });
   }
+  const newMsgs = (d.chat?.length || 0) - (before?.chat?.length || 0);
+  if (before && newMsgs > 0 && d.chat[d.chat.length - 1].pid !== d.me.pid) sfx("msg");
+  render();
 }
+let polling = null;
+async function poll() {
+  if (!me) return;
+  try {
+    const q = new URLSearchParams({ pid: me.pid, token: me.token, v: S?.v ?? "" });
+    const r = await fetch(`/api/game/${me.code}?${q}`, { cache: "no-store" });
+    if (r.status === 404 || r.status === 403) { const d = await r.json().catch(() => ({})); me = null; S = null; saveMe(); clearInterval(polling); toast(d.error || "That game is over."); render(); return; }
+    accept(await r.json());
+  } catch { /* offline for a moment: try again next tick */ }
+}
+function startPolling() { clearInterval(polling); polling = setInterval(poll, POLL); poll(); }
 
-/* ---------- screens ---------- */
+const serverNow = () => Date.now() + clockSkew;
+const secsLeft = (deadline) => (deadline ? Math.max(0, Math.ceil(deadline - serverNow() / 1000)) : 0);
+const fmt = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+const timer = (deadline) => h("span", { class: "tag clock", "data-deadline": deadline || "" }, "⏳ ", h("span", {}, fmt(secsLeft(deadline))));
+setInterval(() => {
+  for (const el of document.querySelectorAll("[data-deadline]")) {
+    const s = secsLeft(+el.dataset.deadline);
+    el.lastChild.textContent = fmt(s);
+    el.classList.toggle("hurry", s > 0 && s <= 10);
+  }
+}, 250);
+
+/* ---------- rendering, keeping what you're typing ---------- */
 function render() {
-  const screens = { home, setup, loading, briefing, pass, turn, pickSuspect, pickPlace, interview, search, notebook, solve, wrong, revealing, reveal };
-  const el = (screens[view.name] || home)();
-  el.classList.add("screen");
+  const active = document.activeElement?.dataset?.keep || null;
+  const kept = Object.fromEntries([...document.querySelectorAll("[data-keep]")].map((el) => [el.dataset.keep, el.value]));
+  const chatBox = document.querySelector(".chatlog");
+  const nearBottom = !chatBox || chatBox.scrollHeight - chatBox.scrollTop - chatBox.clientHeight < 80;
+  const el = screen();
   $app.replaceChildren(el);
-  const focus = el.querySelector("[data-focus]");
-  if (focus && !matchMedia("(pointer: coarse)").matches) focus.focus({ preventScroll: true });
+  for (const [k, v] of Object.entries(kept)) { const x = el.querySelector(`[data-keep="${k}"]`); if (x && v) x.value = v; }
+  if (active) { const x = el.querySelector(`[data-keep="${active}"]`); if (x) { x.focus({ preventScroll: true }); try { x.setSelectionRange(x.value.length, x.value.length); } catch { /* ignore */ } } }
+  const log_ = el.querySelector(".chatlog");
+  if (log_ && nearBottom) log_.scrollTop = log_.scrollHeight;
 }
 
-function bar(title, { back, book = true } = {}) {
-  return h("div", { class: "bar" },
-    back ? ibtn("back", "Back", back) : ibtn("home", "Leave the game (it's saved)", () => go("home")),
-    h("span", { class: "title" }, title),
-    h("span", { class: "spacer" }),
-    G && book && G.phase === "play" ? h("button", { class: "btn sm", type: "button", onClick: () => go("notebook", { from: view }) }, h("span", { html: icon("book"), style: { display: "grid", width: "1.1rem" } }), "Notebook") : null);
+function screen() {
+  if (!me) return home();
+  if (!S) return h("section", { class: "loading" }, h("span", { class: "lens", html: LENS }), h("p", { class: "loadline" }, "Joining the game…"));
+  const fn = { lobby, roles, day, body, quiet, talk, vote, result, over }[S.phase] || lobby;
+  return fn();
 }
 
+const bar = (title, ...right) => h("div", { class: "bar" },
+  h("span", { class: "logo-sm", html: LENS }), h("span", { class: "title" }, title), h("span", { class: "spacer" }), ...right, soundBtn());
+const who = (pid) => S.players.find((p) => p.pid === pid);
+const roomName = (id) => S.rooms.find((r) => r.id === id)?.name || id;
+const roleChip = () => h("button", { class: "tag role-chip", type: "button", onClick: () => { ui.revealed = !ui.revealed; render(); } },
+  ui.revealed ? (S.me.role === "killer" ? "🔪 Killer" : "🕯️ Guest") : "👁 My role");
+const ghostBanner = () => (!S.me.alive ? h("div", { class: "ghost" }, "👻 ", S.me.ejected ? "You were voted out." : "You're dead.",
+  " You can watch everything. Only other ghosts can read what you write.") : null);
+
+/* ---------- home ---------- */
 function home() {
-  const saved = G && G.phase !== "reveal" ? G : null;
+  const joinCode = (location.hash.match(/join\/(\w{4})/i) || [])[1]?.toUpperCase() || "";
+  const name = h("input", { class: "input", placeholder: "Your name", maxlength: "16", value: localStorage.getItem("alibi.name") || "", "aria-label": "Your name", autocomplete: "nickname", "data-keep": "name" });
+  const code = h("input", { class: "input code-in", placeholder: "CODE", maxlength: "4", "aria-label": "Game code", autocapitalize: "characters", autocomplete: "off", "data-keep": "code", value: joinCode });
+  const go = async (mode, extra = {}) => {
+    const n = name.value.trim();
+    if (!n) { name.focus(); toast("Type your name first."); return; }
+    try { localStorage.setItem("alibi.name", n); } catch { /* ignore */ }
+    try {
+      const d = await post("/api/play", { name: n, mode, ...extra });
+      me = { code: d.code, pid: d.pid, token: d.token };
+      saveMe();
+      history.replaceState(null, "", "/");
+      S = null;
+      render();
+      startPolling();
+    } catch (e) { toast(e.message, 4000); }
+  };
+  const join = () => { const c = code.value.trim().toUpperCase(); if (c.length !== 4) { toast("Game codes have 4 letters."); code.focus(); return; } go("join", { code: c }); };
+  code.addEventListener("keydown", (e) => { if (e.key === "Enter") join(); });
   return h("section", { class: "home" },
-    h("div", { class: "logo" }, h("span", { html: `<svg viewBox="0 0 64 64">${ICONS.lens}</svg>` }), h("span", { class: "label" }, "A party murder mystery")),
+    h("div", { class: "logo" }, h("span", { html: LENS }), h("span", { class: "label" }, "A murder party game")),
     h("div", {}, h("h1", { class: "display" }, "Alibi"),
-      h("p", { class: "tagline" }, "Somebody here is lying. Pass the phone, ask the right questions, and name the killer before the night is out.")),
-    saved ? h("div", { class: "resume" }, h("span", { class: "label" }, "Case in progress"), h("b", {}, saved.case.title),
-      h("span", { class: "muted small" }, `Round ${Math.min(saved.round, saved.rounds)} of ${saved.rounds} · ${saved.players.map((p) => p.name).join(", ")}`),
-      h("div", { class: "row", style: { marginTop: "0.5rem" } }, h("button", { class: "btn primary", type: "button", onClick: () => resumeGame() }, "Continue the case"),
-        h("button", { class: "btn ghost sm", type: "button", onClick: () => { if (confirm("Abandon this case? It can't be brought back.")) { G = null; save(); go("setup"); } } }, "Abandon it"))) : null,
-    h("button", { class: "btn primary block", type: "button", onClick: () => go("setup") }, "Open a new case"),
+      h("p", { class: "tagline" }, "One of you is a killer. Spend a normal day at the manor, find the body, then look back at who was where.")),
+    joinCode ? h("div", { class: "card" }, h("b", {}, `You've been invited to game ${joinCode}.`), h("p", { class: "muted small" }, "Type your name and tap Join.")) : null,
+    h("label", { class: "field" }, h("span", {}, "Your name"), name),
+    h("div", { class: "stack" },
+      h("div", { class: "joinrow" }, code, h("button", { class: "btn" + (joinCode ? " primary" : ""), type: "button", onClick: join }, "Join a game")),
+      h("button", { class: "btn primary block", type: "button", onClick: () => go("create") }, "👨‍👩‍👧 Start a game for family or friends"),
+      h("button", { class: "btn block", type: "button", onClick: () => go("queue") }, "🌍 Find a game online"),
+      h("button", { class: "btn block", type: "button", onClick: () => go("bots") }, "🤖 Play with bots")),
     h("div", { class: "card" }, h("span", { class: "label" }, "How to play"),
       h("ol", { class: "howto", style: { marginTop: "0.8rem" } },
-        h("li", {}, h("span", {}, h("b", {}, "1 to 4 detectives, one phone. "), "Every case is new, written by AI: a victim, five suspects, five places, and one killer.")),
-        h("li", {}, h("span", {}, h("b", {}, "Take turns. "), "On your turn, question a suspect (3 questions) or search a place for a clue. Then pass the phone.")),
-        h("li", {}, h("span", {}, h("b", {}, "Keep your notebook. "), "In Rivals mode what you learn is yours alone. Share it, or don't.")),
-        h("li", {}, h("span", {}, h("b", {}, "Show them the evidence. "), "Confront a suspect with a clue and watch their story crack. Only the killer lies about the murder; everyone lies about their secrets.")),
-        h("li", {}, h("span", {}, h("b", {}, "Solve it. "), "Name who, why and how. Get it all right on your turn and you win on the spot; get it wrong and you're out. At the end, everyone left makes a final guess.")))));
+        h("li", {}, h("span", {}, h("b", {}, "Everyone on their own phone. "), "4 to 8 players; bots fill empty chairs. One of you is secretly the killer (two in a big game).")),
+        h("li", {}, h("span", {}, h("b", {}, "A normal day. "), "Every hour, pick a room and what to do there. Anyone can pick up things lying around: the candlestick, the rope, the kitchen knife…")),
+        h("li", {}, h("span", {}, h("b", {}, "The killer strikes "), "when they're alone with someone and already carrying a weapon. Walk into that room later and you'll find the body.")),
+        h("li", {}, h("span", {}, h("b", {}, "Look back. "), "You only know what you saw: who was with you and who took what. Everyone sees what's missing and how the victim died.")),
+        h("li", {}, h("span", {}, h("b", {}, "Talk, then vote. "), "Share your day in the chat (the killer lies), then vote someone out. Catch every killer to win; if the killers outnumber the rest, they win.")))),
+    h("div", { class: "row" }, soundBtn(), h("span", { class: "muted small" }, sound.on ? "Sound is on" : "Sound is off")));
 }
 
-function resumeGame() {
-  if (G.phase === "briefing") return go("briefing");
-  if (G.phase === "final") return nextFinal();
-  if (G.phase === "reveal") return G.answer ? go("reveal") : finish();
-  showTurn();
-}
-
-/* ---------- setup ---------- */
-let draft = { names: ["", ""], mode: "rivals", length: "quick", setting: "random" };
-function setup() {
-  const rows = h("div", { class: "players" });
-  const paintRows = () => rows.replaceChildren(...draft.names.map((n, i) => h("div", { class: "player-row" },
-    h("span", { class: "dot", style: { "--c": COLORS[i] }, "aria-hidden": "true" }, String(i + 1)),
-    (() => {
-      const inp = h("input", { class: "input", value: n, placeholder: `Detective ${i + 1}`, maxlength: "16", "aria-label": `Player ${i + 1} name`, autocomplete: "off", enterkeyhint: "next" });
-      inp.addEventListener("input", () => { draft.names[i] = inp.value; });
-      if (i === 0) inp.dataset.focus = "";
-      return inp;
-    })(),
-    draft.names.length > 1 ? ibtn("x", `Remove player ${i + 1}`, () => { draft.names.splice(i, 1); render(); }) : h("span"))));
-  paintRows();
-  const n = draft.names.length;
-  const seg = (key, opts) => h("div", { class: "seg", role: "radiogroup" }, opts.map(([val, title, sub, disabled]) => {
-    const on = (key === "mode" ? mode : draft[key]) === val;
-    return h("button", { type: "button", role: "radio", "aria-checked": String(on), class: on ? "on" : "", disabled, onClick: () => { draft[key] = val; render(); } },
-      h("b", {}, title), sub ? h("small", {}, sub) : null);
-  }));
-  const mode = n === 1 ? "team" : draft.mode;                        // one detective: nothing to keep secret
-  const err = h("p", { class: "error", hidden: true });
-  const start = async () => {
-    const names = draft.names.map((x, i) => x.trim() || `Detective ${i + 1}`);
-    if (new Set(names.map((x) => x.toLowerCase())).size !== names.length) { err.textContent = "Give everyone a different name."; err.hidden = false; return; }
-    const players = names.map((name, i) => ({ name, color: COLORS[i], out: false }));
-    go("loading", { players });
-    try {
-      const d = await api("/api/case", { setting: draft.setting });
-      const rounds = { quick: players.length === 1 ? 6 : 4, full: players.length === 1 ? 9 : 6 }[draft.length];
-      G = {
-        v: 1, case: d.case, token: d.token, players, mode: players.length === 1 ? "team" : draft.mode, rounds, round: 1, turn: 0,
-        phase: "briefing", books: {}, log: [], started: Date.now(),
-      };
-      if (team()) G.books.team = newBook(); else players.forEach((p, i) => { G.books[String(i)] = newBook(); });
-      save();
-      go("briefing");
-    } catch (e) {
-      go("setup", { error: e.message });
-    }
+/* ---------- the lobby ---------- */
+function lobby() {
+  const humans = S.players.filter((p) => !p.bot), bots = S.players.filter((p) => p.bot);
+  const mine = who(S.me.pid);
+  const link = `${location.origin}/#join/${S.code}`;
+  const share = async () => {
+    const text = `Come play Alibi with me! Code ${S.code}`;
+    try { if (navigator.share) { await navigator.share({ title: "Alibi", text, url: link }); return; } } catch (e) { if (e.name === "AbortError") return; }
+    try { await navigator.clipboard.writeText(`${text}: ${link}`); toast("Link copied. Send it to everyone."); } catch { toast(link, 8000); }
   };
-  return h("section", { class: "stack", style: { gap: "1.3rem" } },
-    bar("New case", { back: () => go("home"), book: false }),
-    h("h1", { class: "h2" }, "Who's on the case?"),
-    view.error ? h("p", { class: "error" }, view.error) : null,
-    rows,
-    n < 4 ? h("button", { class: "btn sm", type: "button", onClick: () => { draft.names.push(""); render(); } }, "+ Add a detective") : h("p", { class: "muted small" }, "Four detectives is a full table."),
-    h("div", { class: "field" }, h("span", {}, "How do you play?"),
-      seg("mode", [["rivals", "Rivals", "Private notebooks. Pass the phone.", n === 1], ["team", "Team", "One shared notebook. Solve it together."]])),
-    h("div", { class: "field" }, h("span", {}, "How long?"),
-      seg("length", [["quick", "Quick", n === 1 ? "6 moves · ~15 min" : `4 moves each · ~${8 + n * 4} min`], ["full", "Full", n === 1 ? "9 moves · ~25 min" : `6 moves each · ~${12 + n * 6} min`]])),
-    h("div", { class: "field" }, h("span", {}, "Where does it happen?"),
-      h("div", { class: "settings" }, SETTINGS.map(([key, emoji, name]) => h("button", { class: "setting" + (draft.setting === key ? " on" : ""), type: "button", "aria-pressed": String(draft.setting === key), onClick: () => { draft.setting = key; render(); } },
-        h("span", { "aria-hidden": "true" }, emoji), h("b", {}, name))))),
-    err,
-    h("button", { class: "btn primary block", type: "button", onClick: start }, "Write our case"));
+  return h("section", { class: "stack", style: { gap: "1.1rem" } },
+    bar(S.public ? "Finding players" : "Your game", h("button", { class: "btn ghost sm", type: "button", onClick: leave }, "Leave")),
+    S.public
+      ? h("div", { class: "card stack" }, h("h1", { class: "h2" }, "Looking for players…"),
+        h("p", { class: "muted" }, "The game starts when the timer runs out, or as soon as 8 people join. Empty chairs get bots."), h("div", {}, S.start_at ? timer(S.start_at) : null))
+      : h("div", { class: "card codecard" }, h("span", { class: "label" }, "Game code"), h("div", { class: "bigcode" }, S.code),
+        h("p", { class: "muted small" }, "Everyone opens this site on their own phone and joins with the code, or with the link."),
+        h("button", { class: "btn primary", type: "button", onClick: share }, "📤 Send the link")),
+    h("div", { class: "card" }, h("span", { class: "label" }, `Players · ${S.players.length} of 8`),
+      h("div", { class: "plist" }, S.players.map((p) => h("div", { class: "prow" }, face(p), h("b", {}, p.name, p.pid === S.me.pid ? " (you)" : ""),
+        p.bot ? h("span", { class: "tag" }, "🤖 bot") : p.host ? h("span", { class: "tag" }, "host") : null, h("span", { class: "spacer" }),
+        p.bot ? null : h("span", { class: p.ready ? "yes" : "muted" }, p.ready ? "✓ Ready" : "Not ready"))))),
+    !S.public && S.me.host ? h("div", { class: "card row" }, h("span", {}, h("b", {}, "Bots"), h("br"), h("small", { class: "muted" }, "Fill empty chairs. At least 4 players in all.")), h("span", { class: "spacer" }),
+      h("div", { class: "stepper" }, h("button", { type: "button", "aria-label": "One bot fewer", disabled: !bots.length, onClick: () => act("bots", { n: bots.length - 1 }) }, "−"),
+        h("b", {}, String(bots.length)), h("button", { type: "button", "aria-label": "One more bot", disabled: S.players.length >= 8, onClick: () => act("bots", { n: bots.length + 1 }) }, "+"))) : null,
+    !S.public ? h("button", { class: "btn block " + (mine?.ready ? "" : "primary"), type: "button", onClick: () => act("ready", { on: !mine?.ready }) }, mine?.ready ? "Not ready yet" : "I'm ready") : null,
+    !S.public ? h("p", { class: "muted small center" }, S.start_at ? ["Everyone's ready. Starting in ", timer(S.start_at)]
+      : `${humans.filter((p) => p.ready).length} of ${humans.length} ready. It starts as soon as everyone is.${S.players.length < 4 ? " Bots will fill it up to 4." : ""}`) : null);
+}
+async function leave() {
+  try { await post(`/api/game/${me.code}`, { pid: me.pid, token: me.token, type: "leave" }); } catch { /* ignore */ }
+  me = null; S = null; saveMe(); clearInterval(polling); render();
 }
 
-function loading() {
-  const line = h("p", { class: "loadline" }, LOADING[0]);
-  const bar_ = h("i");
-  let i = 0, t0 = Date.now();
-  const tick = setInterval(() => {
-    if (!line.isConnected) return clearInterval(tick);
-    i = (i + 1) % LOADING.length;
-    line.textContent = LOADING[i];
-    bar_.style.width = `${Math.min(95, ((Date.now() - t0) / 30000) * 100)}%`;
-  }, 2600);
-  requestAnimationFrame(() => { bar_.style.width = "8%"; });
-  return h("section", { class: "loading" },
-    h("span", { class: "lens", html: `<svg viewBox="0 0 64 64">${ICONS.lens}</svg>` }),
-    h("h1", { class: "h2" }, "Writing your case"),
-    line, h("div", { class: "meter", "aria-hidden": "true" }, bar_),
-    h("p", { class: "muted small" }, "A brand-new mystery takes about half a minute."));
-}
-
-/* ---------- the briefing: read it out together ---------- */
-function briefing() {
-  const c = G.case;
-  return h("section", { class: "brief" },
-    bar("The case file", { book: false }),
-    h("div", {}, h("span", { class: "label" }, "Case file"), h("h1", { class: "display", style: { fontSize: "clamp(2rem, 8vw, 3rem)", marginTop: "0.3rem" } }, c.title)),
-    h("p", { class: "lead" }, c.intro),
-    h("div", { class: "paper tilt victim" }, h("span", { class: "stamp" }, "DECEASED"), h("span", { class: "label" }, "The victim"),
-      h("h2", {}, c.victim.name), h("p", { class: "muted" }, c.victim.role),
-      h("p", {}, c.victim.found), h("p", {}, h("b", {}, "Died: "), c.victim.time), h("p", {}, h("b", {}, "The doctor says: "), c.cause)),
-    h("div", {}, h("span", { class: "label" }, "The suspects"), h("p", { class: "muted small" }, "What each of them told you when you arrived.")),
-    h("div", { class: "suspects" }, c.suspects.map((s) => h("div", { class: "suspect" }, mug(s),
-      h("div", {}, h("b", {}, s.name), h("div", { class: "role" }, `${s.role}${s.age ? `, ${s.age}` : ""}`), h("p", { class: "small muted", style: { margin: "0.2rem 0" } }, s.relation), h("p", { class: "quote" }, `“${s.statement}”`))))),
-    h("div", {}, h("span", { class: "label" }, "Places to search")),
-    h("div", { class: "places" }, c.places.map((p) => h("div", { class: "place" }, h("b", {}, p.name), h("small", {}, p.desc)))),
-    h("div", { class: "card" }, h("span", { class: "label" }, "To solve it, name"),
-      h("p", { class: "small", style: { marginTop: "0.6rem" } }, h("b", {}, "Who"), " did it, ", h("b", {}, "why"), " (one of these motives) and ", h("b", {}, "how"), " (one of these weapons):"),
-      h("ul", { class: "opts" }, c.motive_options.map((m) => h("li", {}, m))), h("hr", { class: "rule" }),
-      h("ul", { class: "opts" }, c.weapon_options.map((m) => h("li", {}, m)))),
-    h("p", { class: "muted small" }, solo() ? `You have ${G.rounds} moves.` : `${G.rounds} rounds: every detective gets ${plural(G.rounds, "move")}. ${G.players[0].name} goes first.`),
-    h("button", { class: "btn primary block", type: "button", onClick: () => { G.phase = "play"; save(); startTurn(); } }, "Begin the investigation"));
-}
-
-/* ---------- pass the phone ---------- */
-function pass() {
-  const p = player();
-  const recent = G.log.filter((e) => e.text).slice(-Math.max(1, G.players.length - 1));
+/* ---------- your secret ---------- */
+function roles() {
+  const killer = S.me.role === "killer";
+  const fellow = S.players.filter((p) => p.role === "killer" && p.pid !== S.me.pid);
   return h("section", { class: "pass" },
-    h("span", { class: "label" }, view.final ? "Final accusations" : `Round ${G.round} of ${G.rounds}`),
-    h("span", { class: "big-dot", style: { "--c": p.color }, "aria-hidden": "true" }, initials(p.name).slice(0, 1)),
-    h("p", { class: "muted", style: { margin: 0 } }, "Pass the phone to"),
-    h("h1", { class: "who" }, p.name),
-    h("p", { class: "muted small" }, view.final ? "Everyone else, look away: this accusation is secret." : "Everyone else, no peeking."),
-    !view.final && recent.length ? h("div", { class: "news" }, h("span", { class: "label" }, "Meanwhile"), recent.map((e) => h("span", {}, e.text))) : null,
-    h("button", { class: "btn primary", type: "button", "data-focus": "", onClick: () => { try { navigator.vibrate?.(30); } catch { /* no vibration */ } go(view.final ? "solve" : "turn", { final: view.final }); } }, `I'm ${p.name}`));
+    h("span", { class: "label" }, "Your secret"),
+    !ui.revealed ? [h("p", { class: "lead" }, "Cover your screen, then tap to see who you are."),
+      h("button", { class: "btn primary", type: "button", onClick: () => { ui.revealed = true; render(); } }, "Show my role")]
+      : h("div", { class: "rolecard " + (killer ? "killer" : "guest") },
+        h("div", { class: "role-emoji" }, killer ? "🔪" : "🕯️"),
+        h("h1", { class: "who" }, killer ? "You are the killer" : "You are a guest"),
+        h("p", {}, killer ? "Pick up a weapon, get someone alone, strike. Then lie about where you were." : "Go about your day. Remember who you were with and who picked up what."),
+        fellow.length ? h("p", { class: "small" }, "Your partner in crime: ", h("b", {}, fellow.map((p) => p.name).join(", "))) : null),
+    h("p", { class: "muted small" }, "The day begins in ", timer(S.deadline)));
 }
 
-/* ---------- a turn ---------- */
-function turn() {
-  const p = player(), b = bookOf();
-  const left = G.rounds - G.round;
-  const action = (ico, title, sub, onClick, cls = "") => h("button", { class: `action ${cls}`, type: "button", onClick },
-    h("span", { class: "ico", html: icon(ico) }), h("span", {}, h("b", {}, title), h("small", {}, sub)), h("span", { class: "muted", "aria-hidden": "true" }, "›"));
-  return h("section", {},
-    bar(G.case.title),
-    h("div", { class: "turnhead" },
-      h("div", { class: "meta" }, h("span", { class: "pchip" }, dot(p), p.name), h("span", { class: "tag" }, `Round ${G.round} of ${G.rounds}`),
-        left === 0 ? h("span", { class: "tag warn" }, "Last round") : null),
-      h("h1", { class: "h2", style: { marginTop: "0.5rem" } }, "Your move, detective."),
-      h("p", { class: "muted" }, `Pick one. ${b.clues.length ? `You have ${plural(b.clues.length, "clue")} so far.` : "Your notebook is empty so far."}`)),
-    G.acted ? h("div", { class: "card stack" }, h("b", {}, "You've made your move this turn."),
-      h("div", { class: "row" }, h("button", { class: "btn primary", type: "button", onClick: endTurn }, "End my turn"),
-        h("button", { class: "btn sm", type: "button", onClick: () => go("notebook", { from: { name: "turn" } }) }, "Read my notebook"))) :
-    h("div", { class: "actions" },
-      action("talk", "Question a suspect", "Up to 3 questions. Show them evidence to shake them.", () => go("pickSuspect")),
-      action("search", "Search a place", "Find one clue for your notebook.", () => go("pickPlace")),
-      action("book", "Read your notebook", "Clues, interviews, your hunches. Doesn't use your move.", () => go("notebook", { from: { name: "turn" } })),
-      action("gavel", "Solve the case", "Name who, why and how. One try: right wins, wrong and you're out.", () => go("solve"), "solve")));
+/* ---------- the day ---------- */
+function day() {
+  const hr = S.hours[S.hour], mine = S.myday || [];
+  const last = mine[mine.length - 1];
+  const chosen = ui.changing ? null : S.chosen;
+  const room = ui.room && S.rooms.find((r) => r.id === ui.room);
+  const killer = S.me.role === "killer";
+  const header = h("div", { class: "dayhead" },
+    h("div", { class: "meta" }, h("span", { class: "tag" }, `Day ${S.day}`), h("span", { class: "tag hour" }, `🕰️ ${hr}`), timer(S.deadline), roleChip()),
+    S.me.carrying ? h("p", { class: "carry" }, "You're carrying the ", h("b", {}, S.me.carrying), ".") : null);
+  const recap = last ? h("div", { class: "card recap" }, h("span", { class: "label" }, `At ${last.hour}`),
+    h("p", {}, `You were in the ${roomName(last.room)} `, last.saw.length ? ["with ", h("b", {}, last.saw.join(", ")), "."] : "on your own."),
+    last.events.map((e) => h("p", { class: "small ev" }, e))) : h("p", { class: "muted" }, "Morning at the manor. Everyone drifts off to start their day…");
+  if (!S.me.alive) {
+    return h("section", { class: "stack" }, bar(`Day ${S.day}`), ghostBanner(), header, h("p", { class: "lead" }, `It's ${hr}. The living are choosing where to go.`), ghostChat());
+  }
+  if (chosen) {
+    return h("section", { class: "stack" }, bar(`Day ${S.day}`), header, recap,
+      h("div", { class: "card center stack" }, h("span", { class: "big-emoji" }, S.rooms.find((r) => r.id === chosen.room).emoji),
+        h("b", {}, `${hr}: the ${roomName(chosen.room)}`),
+        h("span", { class: "muted small" }, [chosen.act, chosen.take && `take the ${chosen.take}`, chosen.put && "put back what you're carrying", chosen.strike && "🔪 strike if alone"].filter(Boolean).join(" · ")),
+        h("p", { class: "muted small" }, "Waiting for the others…"),
+        h("button", { class: "btn ghost sm", type: "button", onClick: () => { ui.changing = true; ui.room = chosen.room; ui.act = chosen.act; render(); } }, "Change my mind")));
+  }
+  const pickRoom = h("div", { class: "rooms" }, S.rooms.map((r) => h("button", { class: "roombtn" + (ui.room === r.id ? " on" : ""), type: "button", "aria-pressed": String(ui.room === r.id),
+    onClick: () => { ui.room = r.id; ui.act = r.acts[0]; ui.take = null; ui.put = false; render(); } }, h("span", { class: "big-emoji" }, r.emoji), h("b", {}, r.name))));
+  let details = null;
+  if (room) {
+    const opt = (on, label, fn, cls = "") => h("button", { class: `optbtn ${cls}${on ? " on" : ""}`, type: "button", "aria-pressed": String(on), onClick: fn }, label);
+    const home = S.me.carrying && S.rooms.find((r) => r.items.includes(S.me.carrying))?.id === room.id;
+    details = h("div", { class: "card stack" },
+      h("span", { class: "label" }, `In the ${room.name}`),
+      h("div", { class: "opts2" }, room.acts.map((a) => opt(ui.act === a, a, () => { ui.act = a; render(); }))),
+      S.me.carrying ? null : h("div", { class: "opts2" }, room.items.map((it) => opt(ui.take === it, `✋ Take the ${it}`, () => { ui.take = ui.take === it ? null : it; render(); }))),
+      home ? opt(ui.put, `↩️ Put back the ${S.me.carrying}`, () => { ui.put = !ui.put; render(); }) : null,
+      S.me.carrying && !home ? h("p", { class: "muted small" }, `Your hands are full. You can put the ${S.me.carrying} back in the room it came from.`) : null,
+      killer ? opt(ui.strike, S.me.carrying ? `🔪 Strike if I end up alone with someone` : "🔪 You need a weapon first", () => { if (!S.me.carrying) return toast("Take a weapon this hour; you can strike from the next one."); ui.strike = !ui.strike; render(); }, "strike") : null,
+      h("button", { class: "btn primary block", type: "button", onClick: () => act("choose", { room: room.id, act: ui.act, take: ui.take, put: ui.put, strike: ui.strike }) }, `Go to the ${room.name}`));
+  }
+  return h("section", { class: "stack" }, bar(`Day ${S.day}`), header, recap,
+    h("h2", { class: "h2" }, `Where will you be at ${hr}?`), pickRoom, details);
 }
 
-function pickSuspect() {
-  const b = bookOf();
-  return h("section", { class: "stack" },
-    bar("Question a suspect", { back: () => go("turn") }),
-    h("h1", { class: "h2" }, "Who do you want to talk to?"),
-    h("div", { class: "suspects" }, G.case.suspects.map((s) => h("button", { class: "suspect", type: "button", onClick: () => go("interview", { id: s.id, asked: 0 }) }, mug(s),
-      h("div", {}, h("b", {}, s.name), h("div", { class: "role" }, s.role),
-        h("p", { class: "quote" }, `“${s.statement}”`),
-        (b.talks[s.id] || []).length ? h("span", { class: "tag", style: { marginTop: "0.4rem" } }, `You've asked ${plural(b.talks[s.id].length, "question")}`) : null)))));
+/* ---------- the body ---------- */
+function bodyCard(compact = false) {
+  const b = S.body;
+  if (!b) return null;
+  return h("div", { class: "paper body-card" + (compact ? " compact" : "") }, h("span", { class: "stamp" }, "DECEASED"),
+    h("span", { class: "label" }, "The body"),
+    h("h2", {}, b.victim), h("p", {}, `Found in the ${b.room} ${b.foundAt === "dusk" ? "at dusk" : `at ${b.foundAt}`}${b.foundBy.length ? ` by ${b.foundBy.join(" and ")}` : ""}.`),
+    h("p", {}, h("b", {}, "Died around "), b.hour, ", ", b.cause, "."),
+    S.missing?.length ? h("p", {}, h("b", {}, "Missing from the house: "), S.missing.map((m) => `the ${m.item} (${m.room})`).join(", "), ".") : h("p", {}, "Nothing is missing from the house."));
+}
+function body() {
+  return h("section", { class: "stack" }, bar(`Day ${S.day}`),
+    h("div", { class: "scream" }, h("span", { class: "label" }, "A scream rings through the manor"), h("h1", { class: "display" }, `${S.body?.victim || "Someone"} is dead.`)),
+    ghostBanner(), bodyCard(), h("p", { class: "muted small center" }, "Look back at your day. The talking starts in ", timer(S.deadline)), dayLog());
+}
+function quiet() {
+  return h("section", { class: "pass" }, h("span", { class: "label" }, `Day ${S.day} ends`), h("h1", { class: "who" }, "Nobody died today."),
+    h("p", { class: "lead" }, "But the killer is still among you, and someone has been picking things up…"),
+    S.missing?.length ? h("p", {}, h("b", {}, "Missing: "), S.missing.map((m) => `the ${m.item}`).join(", ")) : null, h("p", { class: "muted small" }, "The talking starts in ", timer(S.deadline)));
+}
+/** Your day, hour by hour: the only witness statement you can trust. */
+function dayLog() {
+  const mine = S.myday || [];
+  if (!mine.length) return null;
+  return h("div", { class: "card" }, h("span", { class: "label" }, "Your day"),
+    h("ol", { class: "daylog" }, mine.map((e) => h("li", {}, h("span", { class: "t" }, e.hour),
+      h("span", {}, h("b", {}, roomName(e.room)), e.saw.length ? [" with ", e.saw.join(", ")] : " alone", e.idle ? h("em", { class: "muted" }, " (you didn't choose)") : null,
+        e.events.map((x) => h("span", { class: "ev" }, x)))))));
 }
 
-function pickPlace() {
-  const b = bookOf();
-  return h("section", { class: "stack" },
-    bar("Search a place", { back: () => go("turn") }),
-    h("h1", { class: "h2" }, "Where do you look?"),
-    h("div", { class: "places" }, G.case.places.map((pl) => {
-      const got = b.found[pl.id] || 0, done = got >= pl.clues;
-      return h("button", { class: "place", type: "button", disabled: done, onClick: () => go("search", { id: pl.id }) },
-        h("b", {}, pl.name), h("small", {}, pl.desc),
-        h("span", { class: "left" }, done ? "Searched top to bottom" : got ? "Something else might be here" : "Not searched yet"));
-    })));
+/* ---------- talk ---------- */
+function chatLog() {
+  const msgs = S.chat || [];
+  return h("div", { class: "chatlog", role: "log", "aria-live": "polite" }, msgs.map((m) => h("div", { class: "cmsg" + (m.pid === S.me.pid ? " mine" : "") + (m.ghost ? " ghostmsg" : "") },
+    face({ name: m.name, color: m.color }, "sm"),
+    h("div", {}, h("b", { style: { color: m.color } }, m.name, m.bot ? " 🤖" : "", m.ghost ? " 👻" : ""),
+      m.claim ? h("div", { class: "claim" }, m.claim.map((c) => h("span", {}, h("i", {}, c.hour), " ", c.room))) : h("p", {}, m.text)))),
+    !msgs.length ? h("p", { class: "muted small center" }, "Nobody has said anything yet. Start with where you were.") : null);
 }
-
-/* ---------- questioning ---------- */
-const MAX_Q = 3;
-function interview() {
-  const s = suspect(view.id), b = bookOf(), p = player();
-  const talk = (b.talks[s.id] ||= []);
-  const before = view.startAt ?? (view.startAt = talk.length);        // what was said on earlier turns shows faded
-  const asked = talk.length - before;
-  const out = MAX_Q - asked;
-  const chat = h("div", { class: "chat" });
-  const paint = () => chat.replaceChildren(
-    ...talk.flatMap((t, i) => [
-      t.ev ? h("div", { class: "msg ev" + (i < before ? " old" : "") }, h("span", { class: "who" }, "You show"), t.ev) : null,
-      t.q ? h("div", { class: "msg q" + (i < before ? " old" : "") }, t.q) : null,
-      h("div", { class: "msg a" + (i < before ? " old" : "") + (t.pending ? " typing" : "") }, h("span", { class: "who" }, s.name), ...speech(t.a)),
-    ]).filter(Boolean));                                             // replaceChildren would print a null as "null"
-  paint();
-  const input = h("input", { class: "input", placeholder: out > 0 ? `Ask ${s.name.split(" ")[0]} anything…` : "No questions left this turn", maxlength: "240", disabled: out <= 0, "aria-label": "Your question", enterkeyhint: "send", "data-focus": "" });
-  let busy = false;
-  const ask = async (q, ev) => {
-    q = (q || "").trim();
-    if (busy || (!q && !ev) || MAX_Q - (talk.length - before) <= 0) return;
-    busy = true;
-    const history = talk.filter((t) => !t.pending).map((t) => ({ q: [t.ev ? `(shows evidence: ${t.ev})` : "", t.q].filter(Boolean).join(" "), a: t.a }));
-    const turn_ = { q, ev: ev || "", a: "", pending: true, round: G.round, by: p.name };
-    talk.push(turn_);
-    render();
-    try {
-      const res = await fetch("/api/ask", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: G.token, suspect: s.id, question: q, evidence: ev || "", history }) });
-      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || "They won't talk right now."); }
-      const reader = res.body.getReader(), dec = new TextDecoder();
-      for (;;) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        turn_.a += dec.decode(value, { stream: true });
-        const bubble = $app.querySelector(".msg.a.typing");
-        if (bubble) { bubble.replaceChildren(h("span", { class: "who" }, s.name), ...speech(turn_.a)); bubble.scrollIntoView({ block: "nearest" }); }
-      }
-    } catch (e) {
-      talk.pop();
-      toast(e.message);
-      busy = false;
-      render();
-      return;
-    }
-    turn_.pending = false;
-    turn_.a = turn_.a.trim() || "…";
-    if (!G.acted) { G.acted = true; logEvent(`${p.name} questioned ${s.name}.`); }
-    busy = false;
-    save();
-    render();
-  };
-  input.addEventListener("keydown", (e) => { if (e.key === "Enter") ask(input.value); });
-  const first = s.name.split(" ")[0];
-  const SUGGEST = [`Where were you ${G.case.victim.time}?`, `What was ${G.case.victim.name.split(" ")[0]} like to you?`, "Who do you think did it?", "Did you see or hear anything strange?", "What aren't you telling me?"];
-  return h("section", { class: "interview" },
-    bar(`Questioning ${first}`, { back: G.acted ? null : () => go("pickSuspect") }),
-    h("div", { class: "suspect" }, mug(s), h("div", {}, h("b", {}, s.name), h("div", { class: "role" }, `${s.role}${s.age ? `, ${s.age}` : ""}`), h("p", { class: "small muted", style: { margin: "0.25rem 0 0" } }, s.look))),
-    talk.length ? chat : h("p", { class: "empty" }, `${first} is waiting. Ask your first question, or show them something from your notebook.`),
-    h("div", { class: "composer" },
-      out > 0 ? h("div", { class: "asks" },
-        b.clues.length ? h("button", { class: "chipbtn ev", type: "button", onClick: () => evidenceSheet((c) => ask(input.value, c)) }, "🔎 Show evidence") : null,
-        SUGGEST.map((q) => h("button", { class: "chipbtn", type: "button", onClick: () => ask(q) }, q))) : null,
-      out > 0 ? h("div", { class: "line" }, input, h("button", { class: "btn primary", type: "button", onClick: () => ask(input.value) }, "Ask")) : null,
-      h("div", { class: "row" }, h("span", { class: "left-q" }, out > 0 ? `${plural(out, "question")} left` : "That's all your questions this turn."),
-        h("span", { class: "spacer" }),
-        G.acted ? h("button", { class: out > 0 ? "btn sm" : "btn primary sm", type: "button", onClick: endTurn }, "End my turn") : null)));
+function composer() {
+  const input = h("input", { class: "input", placeholder: S.me.alive ? "Say something…" : "Whisper to the other ghosts…", maxlength: "200", "aria-label": "Chat message", "data-keep": "chat", enterkeyhint: "send", autocomplete: "off" });
+  const send = async () => { const t = input.value.trim(); if (!t) return; input.value = ""; await act("chat", { text: t }); };
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter") send(); });
+  return h("div", { class: "composer" }, h("div", { class: "line" }, input, h("button", { class: "btn primary", type: "button", onClick: send }, "Send")));
 }
-
-function evidenceSheet(onPick) {
-  const b = bookOf();
+function ghostChat() {
+  return h("div", { class: "card stack" }, h("span", { class: "label" }, "Ghost chat"), chatLog(), composer());
+}
+function claimSheet() {
+  const hours = (S.myday || []).map((e) => e.i);
+  ui.draft = ui.draft || Object.fromEntries((S.myday || []).map((e) => [e.i, e.room]));
   const scrim = h("div", { class: "sheet-scrim" });
   const close = () => { scrim.remove(); sheet.remove(); };
   scrim.addEventListener("click", close);
-  const sheet = h("div", { class: "sheet", role: "dialog", "aria-modal": "true", "aria-label": "Show evidence" },
-    h("h3", {}, "Show them…"),
-    h("div", { class: "cluelist" }, b.clues.map((c) => h("button", { class: "paper clue", type: "button", style: { border: 0, textAlign: "left", width: "100%" }, onClick: () => { close(); onPick(c.text); } },
-      h("small", {}, `Found in ${place(c.place)?.name || "?"}`), c.text))),
-    h("button", { class: "btn ghost block", type: "button", style: { marginTop: "0.8rem" }, onClick: close }, "Never mind"));
+  const sheet = h("div", { class: "sheet", role: "dialog", "aria-modal": "true", "aria-label": "Share my day" },
+    h("h3", {}, "Share your day"),
+    h("p", { class: "muted small" }, S.me.role === "killer" ? "It's filled in with the truth. You might want to… adjust it." : "Filled in with where you really were. Everyone will see it."),
+    h("div", { class: "stack" }, hours.map((i) => {
+      const sel = h("select", { class: "input", "aria-label": S.hours[i] }, S.rooms.map((r) => h("option", { value: r.id, selected: ui.draft[i] === r.id }, `${r.emoji} ${r.name}`)));
+      sel.addEventListener("change", () => { ui.draft[i] = sel.value; });
+      return h("label", { class: "claimrow" }, h("span", {}, S.hours[i]), sel);
+    })),
+    h("button", { class: "btn primary block", type: "button", style: { marginTop: "1rem" }, onClick: () => { close(); act("claim", { claim: ui.draft }); } }, "Post it in the chat"));
   document.body.append(scrim, sheet);
 }
-
-/* ---------- searching ---------- */
-function search() {
-  const pl = place(view.id), b = bookOf(), p = player();
-  const box = h("div", { class: "stack" }, h("div", { class: "loading", style: { minHeight: "40vh" } },
-    h("span", { class: "lens", html: `<svg viewBox="0 0 64 64">${ICONS.lens}</svg>` }), h("p", { class: "loadline" }, `Searching ${pl.name}…`)));
-  if (!view.result && !view.started) {
-    view.started = true;
-    const n = b.found[pl.id] || 0;
-    Promise.all([api("/api/search", { token: G.token, place: pl.id, n }), new Promise((r) => setTimeout(r, 1300))]).then(([d]) => {
-      b.found[pl.id] = n + 1;
-      const clue = { place: pl.id, text: d.clue, round: G.round, by: p.name };
-      b.clues.push(clue);
-      G.acted = true;
-      logEvent(`${p.name} searched ${pl.name}.`);
-      save();
-      view.result = clue;
-      render();
-    }).catch((e) => { toast(e.message); go("pickPlace"); });
-  }
-  return h("section", { class: "stack" },
-    bar(pl.name, { back: view.result ? null : () => go("pickPlace") }),
-    view.result ? [
-      h("span", { class: "label" }, "You found"),
-      h("div", { class: "paper clue tilt" }, h("span", { class: "stamp" }, "EVIDENCE"), h("small", { class: "label", style: { display: "block", marginBottom: "0.5rem" } }, pl.name), view.result.text),
-      h("p", { class: "muted small" }, team() ? "Added to the team notebook." : "Added to your notebook. Only you can see it, unless you tell the others."),
-      h("button", { class: "btn primary block", type: "button", onClick: endTurn }, "End my turn"),
-    ] : box);
-}
-
-/* ---------- the notebook ---------- */
-function notebook() {
-  const b = bookOf(), tab = view.tab || "clues";
-  const back = () => go(view.from?.name || "turn", view.from || {});
-  const tabs = [["clues", `Clues (${b.clues.length})`], ["talks", "Interviews"], ["suspects", "Suspects"], ["jot", "My notes"]];
-  let body;
-  if (tab === "clues") {
-    body = b.clues.length ? h("div", { class: "cluelist" }, b.clues.map((c) => h("div", { class: "paper clue" }, h("small", {}, `${place(c.place)?.name} · round ${c.round}${team() && c.by ? ` · ${c.by}` : ""}`), c.text)))
-      : h("p", { class: "empty" }, "No clues yet. Search a place to find one.");
-  } else if (tab === "talks") {
-    const who = G.case.suspects.filter((s) => (b.talks[s.id] || []).length);
-    body = who.length ? h("div", { class: "stack" }, who.map((s) => h("div", { class: "card stack" },
-      h("div", { class: "row" }, mug(s), h("b", {}, s.name)),
-      h("div", { class: "chat" }, b.talks[s.id].filter((t) => !t.pending).flatMap((t) => [
-        t.ev ? h("div", { class: "msg ev" }, h("span", { class: "who" }, "Shown"), t.ev) : null,
-        t.q ? h("div", { class: "msg q" }, t.q) : null,
-        h("div", { class: "msg a" }, ...speech(t.a))])))))
-      : h("p", { class: "empty" }, "You haven't questioned anyone yet.");
-  } else if (tab === "suspects") {
-    body = h("div", { class: "suspects" }, G.case.suspects.map((s) => {
-      const m = b.marks[s.id] || "";
-      const set = (v) => { b.marks[s.id] = m === v ? "" : v; save(); render(); };
-      return h("div", { class: "suspect" }, mug(s), h("div", {}, h("b", {}, s.name), h("div", { class: "role" }, s.role), h("p", { class: "quote" }, `“${s.statement}”`),
-        h("div", { class: "marks", style: { marginTop: "0.5rem" } },
-          h("button", { class: "markbtn sus" + (m === "sus" ? " on" : ""), type: "button", "aria-pressed": String(m === "sus"), onClick: () => set("sus") }, "Suspicious"),
-          h("button", { class: "markbtn clear" + (m === "clear" ? " on" : ""), type: "button", "aria-pressed": String(m === "clear"), onClick: () => set("clear") }, "Cleared"))));
+function talk() {
+  const alive = S.players.filter((p) => p.alive && !p.bot);
+  const readyN = alive.filter((p) => p.readyToVote).length;
+  const claimed = who(S.me.pid)?.claimed;
+  const tabs = h("div", { class: "tabs" }, [["chat", "💬 Chat"], ["evidence", "🔎 Evidence"], ["people", "👥 Who said what"]].map(([k, l]) =>
+    h("button", { type: "button", class: ui.tab === k ? "on" : "", onClick: () => { ui.tab = k; render(); } }, l)));
+  let main;
+  if (ui.tab === "evidence") main = h("div", { class: "stack" }, bodyCard(true) || h("div", { class: "card" }, "Nobody died today.", S.missing?.length ? ` Missing: ${S.missing.map((m) => `the ${m.item}`).join(", ")}.` : ""), dayLog());
+  else if (ui.tab === "people") {
+    main = h("div", { class: "plist card" }, S.players.map((p) => {
+      const c = [...(S.chat || [])].reverse().find((m) => m.pid === p.pid && m.claim);
+      return h("div", { class: "prow top" }, face(p), h("div", {}, h("b", {}, p.name, p.alive ? "" : p.ejected ? " · voted out" : " · dead"),
+        c ? h("div", { class: "claim" }, c.claim.map((x) => h("span", {}, h("i", {}, x.hour), " ", x.room))) : h("small", { class: "muted" }, p.alive ? " Hasn't shared their day" : "")));
     }));
-  } else {
-    const ta = h("textarea", { class: "input", rows: "8", placeholder: "Theories, timelines, who's lying about what…", "aria-label": "Your notes" });
-    ta.value = b.jot;
-    ta.addEventListener("input", () => { b.jot = ta.value; save(); });
-    body = ta;
-  }
-  return h("section", {},
-    bar(team() ? "Team notebook" : `${player().name}'s notebook`, { back, book: false }),
-    h("div", { class: "tabs", role: "tablist" }, tabs.map(([k, label]) => h("button", { type: "button", role: "tab", "aria-selected": String(tab === k), class: tab === k ? "on" : "", onClick: () => { view.tab = k; render(); } }, label))),
-    body,
-    h("details", { class: "card", style: { marginTop: "1rem" } }, h("summary", {}, h("b", {}, "The case file")),
-      h("p", { class: "small" }, h("b", {}, G.case.victim.name), `, ${G.case.victim.role}. ${G.case.victim.found} Died ${G.case.victim.time}. ${G.case.cause}`),
-      h("p", { class: "small muted" }, "Motives: ", G.case.motive_options.join(" · ")),
-      h("p", { class: "small muted" }, "Weapons: ", G.case.weapon_options.join(" · "))));
+  } else main = [chatLog(), composer()];
+  return h("section", { class: "stack talk" }, bar(`Day ${S.day} · talk`, timer(S.deadline)), ghostBanner(), tabs, main,
+    S.me.alive ? h("div", { class: "row" },
+      h("button", { class: "btn sm" + (claimed ? "" : " primary"), type: "button", onClick: claimSheet }, claimed ? "📋 Share my day again" : "📋 Share my day"),
+      h("span", { class: "spacer" }),
+      h("button", { class: "btn sm", type: "button", disabled: S.readyToVote, onClick: () => act("votenow") }, S.readyToVote ? `Waiting (${readyN}/${alive.length})` : `Vote now (${readyN}/${alive.length})`)) : null);
 }
 
-/* ---------- solving ---------- */
-function solve() {
-  const pick = view.pick || (view.pick = { suspect: null, motive: null, weapon: null });
-  const p = player();
-  const ready = pick.suspect && pick.motive != null && pick.weapon != null;
-  const btn = (on, onClick, ...kids) => h("button", { class: "pickbtn" + (on ? " on" : ""), type: "button", "aria-pressed": String(on), onClick }, ...kids);
-  const submit = async () => {
-    if (!ready) return;
-    if (!view.final && !confirm(`Accuse ${suspect(pick.suspect).name}? You only get one try.`)) return;
-    try {
-      const d = await api("/api/accuse", { token: G.token, suspect: pick.suspect, motive: pick.motive, weapon: pick.weapon, final: !!view.final });
-      if (view.final) {
-        const pts = (d.parts.killer ? 3 : 0) + (d.parts.motive ? 1 : 0) + (d.parts.weapon ? 1 : 0);
-        Object.assign(p, { final: { ...pick, parts: d.parts }, score: pts });
-        G.finalQueue.shift();
-        save();
-        return nextFinal();
-      }
-      if (d.right) {
-        Object.assign(p, { final: { ...pick, parts: { killer: true, motive: true, weapon: true } }, score: 5, solved: true });
-        G.winner = G.turn;
-        logEvent(`${p.name} solved the case!`);
-        return finish();
-      }
-      p.out = true;
-      p.score = 0;
-      p.final = { ...pick, wrong: true };
-      logEvent(`${p.name} accused ${suspect(pick.suspect).name}, and was wrong. They're out.`);
-      save();
-      go("wrong");
-    } catch (e) { toast(e.message); }
-  };
-  return h("section", { class: "stack", style: { gap: "1.1rem" } },
-    bar(view.final ? "Final accusation" : "Solve the case", { back: view.final ? null : () => go("turn"), book: !view.final }),
-    h("div", {}, h("span", { class: "label" }, view.final ? `${p.name}, the night is over` : `${p.name}, one shot`),
-      h("h1", { class: "h2", style: { marginTop: "0.3rem" } }, "Who did it, why, and how?"),
-      h("p", { class: "muted small" }, view.final ? "Killer 3 points, motive 1, weapon 1." : "All three right and you win now. Anything wrong and you're out of the game.")),
-    view.final ? h("button", { class: "btn sm", type: "button", onClick: () => go("notebook", { from: { name: "solve", final: true, pick } }) }, "Check my notebook first") : null,
-    h("span", { class: "label" }, "The killer"),
-    h("div", { class: "pick" }, G.case.suspects.map((s) => btn(pick.suspect === s.id, () => { pick.suspect = s.id; render(); }, mug(s), h("span", {}, h("b", {}, s.name), h("br"), h("small", { class: "muted" }, s.role))))),
-    h("span", { class: "label" }, "The motive"),
-    h("div", { class: "pick" }, G.case.motive_options.map((m, i) => btn(pick.motive === i, () => { pick.motive = i; render(); }, m))),
-    h("span", { class: "label" }, "The weapon"),
-    h("div", { class: "pick" }, G.case.weapon_options.map((m, i) => btn(pick.weapon === i, () => { pick.weapon = i; render(); }, m))),
-    h("button", { class: "btn danger block", type: "button", disabled: !ready, onClick: submit }, view.final ? "Seal my accusation" : "Make the accusation"));
+/* ---------- vote ---------- */
+function vote() {
+  const alive = S.players.filter((p) => p.alive);
+  const mine = S.myvote;
+  const opt = (target, ...kids) => h("button", { class: "pickbtn" + (mine === target ? " on" : ""), type: "button", disabled: !S.me.alive, onClick: () => act("vote", { target }) }, ...kids);
+  return h("section", { class: "stack" }, bar(`Day ${S.day} · vote`, timer(S.deadline)), ghostBanner(),
+    h("h1", { class: "h2" }, "Who is the killer?"),
+    h("p", { class: "muted small" }, `${alive.filter((p) => p.voted).length} of ${alive.length} have voted. Most votes is out; a tie means nobody.`),
+    h("div", { class: "pick" }, alive.filter((p) => p.pid !== S.me.pid).map((p) => opt(p.pid, face(p, "sm"), h("span", {}, h("b", {}, p.name), p.voted ? h("small", { class: "muted" }, " · voted") : null))),
+      opt("skip", h("span", { class: "face sm skip" }, "–"), h("b", {}, "Skip: not sure yet"))),
+    h("details", { class: "card" }, h("summary", {}, "Evidence"), bodyCard(true), dayLog()));
 }
 
-function wrong() {
-  const p = player();
-  const anyone = active().length > 0;
-  return h("section", { class: "pass" },
-    h("span", { class: "label" }, "Wrong"),
-    h("h1", { class: "who" }, "Not quite."),
-    h("p", { class: "lead" }, `Something in that accusation is wrong, ${p.name}. You're out of the running${anyone ? ", but keep your lips sealed... or don't." : "."}`),
-    h("button", { class: "btn primary", type: "button", onClick: () => (anyone ? endTurn() : finish()) }, anyone ? "Pass the phone on" : "See what really happened"));
+function result() {
+  const e = S.ejected;
+  return h("section", { class: "pass" }, h("span", { class: "label" }, "The vote"),
+    e ? [h("h1", { class: "who" }, `${e.name} is out.`), h("p", { class: "lead " + (e.role === "killer" ? "yes" : "no") }, e.role === "killer" ? "They were a killer! 🔪" : "They were innocent…")]
+      : h("h1", { class: "who" }, "Nobody is out."),
+    h("div", { class: "row center" }, Object.entries(S.tally || {}).sort((a, b) => b[1] - a[1]).map(([n, c]) => h("span", { class: "tag" }, `${n === "skip" ? "Skip" : n}: ${c}`))),
+    h("p", { class: "muted small" }, "Next: ", timer(S.deadline)));
 }
 
 /* ---------- the end ---------- */
-function revealing() {
-  return h("section", { class: "loading" }, h("span", { class: "lens", html: `<svg viewBox="0 0 64 64">${ICONS.lens}</svg>` }), h("h1", { class: "h2" }, "Opening the sealed envelope…"));
+function over() {
+  const killers = S.players.filter((p) => p.role === "killer");
+  const iWon = (S.winner === "killers") === (S.me.role === "killer");
+  return h("section", { class: "stack reveal" }, bar("Game over"),
+    h("div", { class: "culprit" }, h("span", { class: "bigstamp" + (S.winner === "guests" ? "" : " lost") }, S.winner === "guests" ? "CAUGHT" : "ESCAPED"),
+      h("span", { class: "label" }, S.winner === "guests" ? "The guests win" : "The killers win"),
+      h("div", { class: "row center" }, killers.map((p) => face(p, "big"))),
+      h("h1", { class: "display", style: { fontSize: "clamp(1.8rem, 7vw, 2.6rem)" } }, killers.map((p) => p.name).join(" & ")),
+      h("p", { class: "lead" }, iWon ? "You won! 🎉" : "You lost this one.")),
+    h("div", { class: "card" }, h("span", { class: "label" }, "Everyone"), h("div", { class: "plist" }, S.players.map((p) => h("div", { class: "prow" }, face(p), h("b", {}, p.name),
+      h("span", { class: "spacer" }), h("span", { class: p.role === "killer" ? "no" : "muted" }, p.role === "killer" ? "🔪 killer" : p.alive ? "survived" : p.ejected ? "voted out" : "killed"))))),
+    (S.truth || []).map((d) => h("div", { class: "card stack" }, h("span", { class: "label" }, `Day ${d.n}: what really happened`),
+      d.kill ? h("p", {}, h("b", {}, d.kill.killer), ` killed ${d.kill.victim} in the ${d.kill.room} at ${d.kill.hour} with the ${d.kill.weapon}.`) : h("p", { class: "muted" }, "Nobody died."),
+      h("div", { class: "grid-wrap" }, h("table", { class: "truth" },
+        h("thead", {}, h("tr", {}, h("th", {}, ""), d.grid.map((g) => h("th", {}, g.hour)))),
+        h("tbody", {}, S.players.map((p) => h("tr", {}, h("th", {}, p.name), d.grid.map((g) => {
+          const r = g.rows.find((x) => x.name === p.name);
+          return h("td", {}, r ? r.room : "–", r?.did ? h("small", {}, r.did) : null);
+        })))))))),
+    h("button", { class: "btn primary block", type: "button", onClick: () => act("again") }, "Play again with the same people"),
+    h("button", { class: "btn ghost block", type: "button", onClick: leave }, "Leave"));
 }
 
-function reveal() {
-  if (!G) return home();
-  const a = G.answer;
-  if (!a) return h("section", { class: "stack" }, bar("The end", { book: false }), h("p", { class: "error" }, view.error || "Couldn't open the answer."), h("button", { class: "btn primary", type: "button", onClick: finish }, "Try again"));
-  const k = suspect(a.killer);
-  const ranked = G.players.map((p, i) => ({ ...p, i, score: p.score || 0 })).sort((x, y) => y.score - x.score);
-  const top = ranked[0]?.score || 0;
-  const caught = G.players.some((p) => p.final?.parts?.killer);
-  const tick = (ok) => h("span", { class: ok ? "yes" : "no" }, ok ? "✓" : "✗");
-  return h("section", { class: "reveal" },
-    bar("Case closed", { book: false }),
-    h("div", { class: "culprit" }, h("span", { class: "label" }, "The killer was"), mug(k), h("h1", { class: "display", style: { fontSize: "clamp(2rem, 8vw, 2.8rem)" } }, k.name),
-      h("p", { class: "muted" }, k.role),
-      h("p", { class: "lead" }, G.winner != null ? `${G.players[G.winner].name} cracked it on round ${G.round}.` : caught ? "Caught at the final accusation." : "They got away with it.")),
-    h("div", { class: "card" }, h("span", { class: "label" }, "Why and how"),
-      h("p", {}, h("b", {}, "Motive: "), G.case.motive_options[a.motive]), h("p", {}, h("b", {}, "Weapon: "), G.case.weapon_options[a.weapon])),
-    G.players.length > 1 || G.players[0].final ? h("div", { class: "scores" }, ranked.map((p) => h("div", { class: "score" + (p.score && p.score === top ? " win" : "") }, dot(p),
-      h("span", {}, h("b", {}, p.name), h("small", {}, p.final?.wrong ? `Accused ${suspect(p.final.suspect)?.name} too early: out` : p.final ? [tick(p.final.parts.killer), " killer ", tick(p.final.parts.motive), " motive ", tick(p.final.parts.weapon), " weapon"] : "No accusation")),
-      h("span", { class: "pts" }, String(p.score))))) : null,
-    h("div", { class: "paper" }, h("span", { class: "label" }, "What really happened"), h("p", { style: { marginTop: "0.6rem" } }, a.solution),
-      a.timeline?.length ? h("ol", { class: "timeline" }, a.timeline.map((t) => h("li", {}, t))) : null),
-    h("div", {}, h("span", { class: "label" }, "Everyone's secrets")),
-    h("div", { class: "suspects" }, G.case.suspects.map((s) => h("div", { class: "suspect" }, mug(s), h("div", {}, h("b", {}, s.name, s.id === a.killer ? " 🔪" : ""), h("p", { class: "small", style: { margin: "0.3rem 0 0" } }, a.secrets[s.id]))))),
-    h("button", { class: "btn primary block", type: "button", onClick: () => { draft.names = G.players.map((p) => p.name); draft.mode = G.mode; G = null; save(); go("setup"); } }, "Play a new case"),
-    h("button", { class: "btn ghost block", type: "button", onClick: () => { G = null; save(); go("home"); } }, "Back to the start"));
-}
-
-addEventListener("pagehide", save);
-fetch("/api/status").then((r) => r.json()).then((d) => { if (!d.enabled) toast("The AI isn't switched on for this site yet, so new cases can't be written.", 6000); }).catch(() => {});
+/* ---------- start ---------- */
+if (me) startPolling();
 render();
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && me) poll(); });
