@@ -5,8 +5,9 @@ the empty chairs.
 
 - **A normal day at the manor.** Every hour (5 of them, 30 seconds each) everyone secretly picks a room and something to
   do there. Anyone can pick up the things lying around: the candlestick, the rope, the kitchen knife…
-- **The killer** (two in a game of 7 or 8) strikes when they are alone with someone and already carrying a weapon.
-  Walk into that room later and you find the body; otherwise it's found at dusk.
+- **The killer** (two in a game of 7 or 8), once armed, picks a target and a room to hunt them in. If the gamble pays
+  off and the target is really there, they strike — even in front of others, though a crowd means witnesses find the
+  body on the spot, while a solo kill stays deniable until someone walks in later (or it's found at dusk).
 - **Look back.** You only know what you saw yourself (who was with you, who took what). Everyone sees where the body
   lay, roughly when and how they died, and what's missing from the house.
 - **Talk and vote.** Two minutes of chat: share your day (the killer can lie about theirs), argue, then vote someone

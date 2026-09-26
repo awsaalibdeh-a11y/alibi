@@ -286,7 +286,7 @@ details summary { cursor: pointer; }
 .carry { margin: 0; color: var(--brass); font-size: 0.9rem; }
 .recap p { margin: 0.3rem 0; }
 .ev { display: block; color: var(--red-ink); font-size: 0.88rem; }
-.rooms { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; }
+.rooms { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.5rem; }
 .roombtn { display: grid; justify-items: center; gap: 0.2rem; min-height: 5.2rem; padding: 0.6rem 0.3rem; border: 0; border-radius: 0.95rem; background: var(--bg-2); color: var(--ink); box-shadow: inset 0 0 0 1px var(--line); }
 .roombtn.on { background: #2c2418; box-shadow: inset 0 0 0 2px var(--brass); }
 .roombtn b { font-size: 0.88rem; }
@@ -328,3 +328,44 @@ table.truth { border-collapse: collapse; font-size: 0.8rem; min-width: 100%; }
 @keyframes stamp { from { transform: rotate(12deg) scale(3); opacity: 0; } }
 .culprit { position: relative; }
 @media (max-width: 380px) { .rooms { grid-template-columns: repeat(2, 1fr); } .opts2 { grid-template-columns: 1fr; } }
+
+/* ---------- first person: a room seen from where you're standing in it ---------- */
+.scene { position: relative; overflow: hidden; padding: 1.3rem 1rem 1.1rem; border-radius: 1rem;
+  background: radial-gradient(130% 90% at 50% -10%, var(--scene-tint, #2c2418) 0%, var(--bg-2) 72%); box-shadow: inset 0 0 0 1px var(--line); text-align: center; }
+.scene-emoji { position: absolute; top: -1.3rem; right: -0.7rem; font-size: 5.5rem; opacity: 0.14; transform: rotate(-8deg); }
+.scene-room { position: relative; font-family: var(--serif); font-weight: 800; font-size: 1.1rem; }
+.scene-floor { position: relative; display: flex; flex-wrap: wrap; justify-content: center; align-items: flex-end; gap: 1rem; margin-top: 0.9rem; }
+.scene-person { display: grid; justify-items: center; gap: 0.3rem; animation: rise 0.3s var(--ease); }
+.scene-person .face { width: 3.6rem; height: 4.2rem; border-radius: 0.7rem; }
+.scene-person small { max-width: 4.6rem; overflow: hidden; font-size: 0.74rem; font-weight: 600; color: var(--ink-2); text-overflow: ellipsis; white-space: nowrap; }
+.scene-person:nth-child(2n) { transform: translateY(-0.5rem); }
+.scene-alone { position: relative; margin: 0.8rem 0 0; color: var(--muted); font-style: italic; }
+
+/* ---------- presence: away, who's decided, typing ---------- */
+.face { position: relative; }
+.face.away:not(.dead)::after { content: "💤"; position: absolute; right: -0.3rem; bottom: -0.3rem; font-size: 0.75rem; filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.7)); }
+.decided-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem; }
+.decideface { display: inline-flex; opacity: 0.35; filter: grayscale(0.7); transition: opacity 0.25s, filter 0.25s; }
+.decideface.yes { opacity: 1; filter: none; }
+.typing-line { margin: -0.2rem 0 0.2rem; font-style: italic; }
+
+/* ---------- chat reactions ---------- */
+.reactrow { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem; margin-top: 0.35rem; position: relative; }
+.reactchip { display: inline-flex; align-items: center; gap: 0.25rem; min-height: 1.7rem; padding: 0.1rem 0.5rem; border: 0; border-radius: 999px; background: var(--bg-3); color: var(--ink-2); font-size: 0.85rem; box-shadow: inset 0 0 0 1px var(--line); }
+.reactchip.mine { background: #3a2f1c; color: var(--brass); box-shadow: inset 0 0 0 1.5px var(--brass); }
+.reactadd { min-height: 1.7rem; padding: 0.1rem 0.4rem; border: 0; border-radius: 999px; background: transparent; color: var(--muted); font-size: 0.85rem; opacity: 0.7; }
+.reactadd:hover { opacity: 1; color: var(--ink); }
+.reactpicker { position: absolute; z-index: 5; top: -2.6rem; left: 0; display: flex; gap: 0.15rem; padding: 0.3rem; border-radius: 999px; background: var(--bg-3); box-shadow: 0 10px 24px -8px rgba(0, 0, 0, 0.7), inset 0 0 0 1px var(--line); animation: rise 0.15s var(--ease); }
+.reactpicker button { min-width: 2.1rem; min-height: 2.1rem; border: 0; border-radius: 50%; background: transparent; font-size: 1.15rem; }
+.reactpicker button:hover { background: var(--bg-2); }
+
+/* ---------- end-game superlatives ---------- */
+.award-row { display: flex; gap: 0.7rem; align-items: flex-start; padding: 0.5rem 0; }
+.award-row + .award-row { border-top: 1px solid var(--line); }
+.award-emoji { font-size: 1.5rem; line-height: 1.4; }
+
+/* ---------- winning confetti ---------- */
+.confetti-wrap { position: fixed; inset: 0; z-index: 30; overflow: hidden; pointer-events: none; }
+.confetti-bit { position: absolute; top: -2rem; font-size: 1.6rem; opacity: 0; animation-name: confetti-fall; animation-timing-function: cubic-bezier(0.2, 0.5, 0.6, 1); animation-fill-mode: forwards; }
+@keyframes confetti-fall { 0% { opacity: 1; transform: translateY(0) rotate(0deg); } 100% { opacity: 1; transform: translateY(105vh) rotate(var(--rot)); } }
+@media (prefers-reduced-motion: reduce) { .confetti-wrap { display: none; } }
