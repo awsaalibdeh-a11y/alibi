@@ -128,12 +128,17 @@ function accept(d) {
   S = d;
   const key = `${d.phase}|${d.day}|${d.hour}`;
   if (key !== lastPhaseKey) {                                   // a new phase: reset what was half-picked and make a sound
+    const sameWalk = d.phase === "walk" && lastPhaseKey.startsWith(`walk|${d.day}|`);   // just a new hour while walking: a chime, no jump
     lastPhaseKey = key;
-    ui = { ...ui, room: null, take: null, put: false, strike: null, look: false, draft: null };
-    if (d.phase === "roles") ui.revealed = false;
-    if (before) sfx({ roles: "role", move: "hour", room: "door", body: "scream", showdown: "scream", vote: "vote",
-      over: d.winner && ((d.winner === "killers") === (d.me.role === "killer")) ? "win" : "lose" }[d.phase] || "tick");
-    if (!ui.dm) window.scrollTo({ top: 0 });
+    if (sameWalk) {
+      if (before) sfx("hour");
+    } else {
+      ui = { ...ui, room: null, take: null, put: false, strike: null, look: false, draft: null };
+      if (d.phase === "roles") ui.revealed = false;
+      if (before) sfx({ roles: "role", move: "hour", room: "door", walk: "hour", body: "scream", showdown: "scream", vote: "vote",
+        over: d.winner && ((d.winner === "killers") === (d.me.role === "killer")) ? "win" : "lose" }[d.phase] || "tick");
+      if (!ui.dm) window.scrollTo({ top: 0 });
+    }
   }
   if (before) {
     const n = (x) => (x?.chat?.length || 0) + (x?.roomchat?.length || 0);
@@ -196,6 +201,7 @@ function voiceTargets() {
     const here = new Set(S.here.people.map((x) => x.pid));
     return new Set(S.players.filter((p) => here.has(p.pid) && talking(p)).map((p) => p.pid));
   }
+  if (S.phase === "walk") return new Set(S.players.filter((p) => (S.near || []).includes(p.pid) && talking(p)).map((p) => p.pid));
   if (["body", "quiet", "talk", "vote", "result", "showdown", "over", "lobby"].includes(S.phase)) return new Set(S.players.filter((p) => talking(p) && p.alive === S.me.alive).map((p) => p.pid));
   return new Set();
 }
@@ -262,12 +268,13 @@ function render() {
   for (const [k, v] of Object.entries(kept)) { const x = el.querySelector(`[data-keep="${k}"]`); if (x && v) x.value = v; }
   if (active) { const x = el.querySelector(`[data-keep="${active}"]`); if (x) { x.focus({ preventScroll: true }); try { x.setSelectionRange(x.value.length, x.value.length); } catch { /* ignore */ } } }
   for (const x of el.querySelectorAll("[data-log]")) if (logs[x.dataset.log] !== false) x.scrollTop = x.scrollHeight;
+  fpMount();                                                     // the first-person view lives outside the re-rendered page
 }
 
 function screen() {
   if (!me) return home();
   if (!S) return h("section", { class: "loading" }, h("span", { class: "lens", html: LENS }), h("p", { class: "loadline" }, "Joining the game…"));
-  const fn = { lobby, roles, move, room, body, quiet, talk, vote, result, showdown, over }[S.phase] || lobby;
+  const fn = { lobby, roles, move, room, walk, body, quiet, talk, vote, result, showdown, over }[S.phase] || lobby;
   return fn();
 }
 
@@ -281,7 +288,7 @@ const bar = (title, ...right) => h("div", { class: "bar" },
   h("button", { class: "ibtn", type: "button", "aria-label": sound.on ? "Sound on" : "Sound off", title: sound.on ? "Sound on" : "Sound off",
     onClick: () => { sound.on = !sound.on; try { localStorage.setItem("alibi.sound", sound.on ? "on" : "off"); } catch { /* ignore */ } render(); } }, sound.on ? "🔊" : "🔈"));
 const who = (pid) => S.players.find((p) => p.pid === pid);
-const roomName = (id) => S.rooms.find((r) => r.id === id)?.name || id;
+const roomName = (id) => (id === "hall" ? "The hall" : S.rooms.find((r) => r.id === id)?.name || id);
 const roomOf = (id) => S.rooms.find((r) => r.id === id);
 const roleChip = () => h("button", { class: "tag role-chip", type: "button", onClick: () => { ui.revealed = !ui.revealed; render(); } },
   ui.revealed ? `${S.me.role === "killer" ? "🔪 Killer" : "🕯️ Guest"} · ${S.me.char?.title || ""}` : "👁 My role");
@@ -292,6 +299,12 @@ const ghostBanner = () => (!S.me.alive ? h("div", { class: "ghost stack" },
 const voiceTip = () => (!voice.on && S.players.some((p) => p.voice && p.pid !== S.me.pid) ? h("button", { class: "tipbtn", type: "button", onClick: toggleVoice }, "🎙️ Others are on voice: tap to join") : null);
 
 /* ---------- home ---------- */
+const playStyle = () => { try { return localStorage.getItem("alibi.style") || "live"; } catch { return "live"; } };
+const STYLE_INFO = { live: ["🚶 First person", "Walk the house live: see who's there, who takes what, lock doors."], classic: ["🗺️ Classic", "Pick a room each hour, then meet whoever came."] };
+function styleChoice(current, pick, disabled = false) {
+  return h("div", { class: "seg", role: "radiogroup", "aria-label": "How to play" }, Object.entries(STYLE_INFO).map(([k, [label, sub]]) =>
+    h("button", { type: "button", class: current === k ? "on" : "", role: "radio", "aria-checked": String(current === k), disabled, onClick: () => pick(k) }, h("b", {}, label), h("small", {}, sub))));
+}
 function home() {
   const joinCode = (location.hash.match(/join\/(\w{4})/i) || [])[1]?.toUpperCase() || "";
   const name = h("input", { class: "input", placeholder: "Your name", maxlength: "16", value: localStorage.getItem("alibi.name") || "", "aria-label": "Your name", autocomplete: "nickname", "data-keep": "name" });
@@ -301,7 +314,7 @@ function home() {
     if (!n) { name.focus(); toast("Type your name first."); return; }
     try { localStorage.setItem("alibi.name", n); } catch { /* ignore */ }
     try {
-      const d = await post("/api/play", { name: n, mode, ...extra });
+      const d = await post("/api/play", { name: n, mode, style: playStyle(), ...extra });
       me = { code: d.code, pid: d.pid, token: d.token };
       saveMe();
       history.replaceState(null, "", "/");
@@ -318,6 +331,7 @@ function home() {
       h("p", { class: "tagline" }, "A weekend at the manor. A will to be read at dusk. And one of you has decided not to wait.")),
     joinCode ? h("div", { class: "card invite" }, h("b", {}, `You're invited to game ${joinCode}.`), h("p", { class: "muted small" }, "Type your name and tap Join.")) : null,
     h("label", { class: "field" }, h("span", {}, "Your name"), name),
+    h("div", { class: "field" }, h("span", {}, "How do you want to play?"), styleChoice(playStyle(), (k) => { try { localStorage.setItem("alibi.style", k); } catch { /* ignore */ } render(); })),
     h("div", { class: "stack" },
       h("div", { class: "joinrow" }, code, h("button", { class: "btn" + (joinCode ? " primary" : ""), type: "button", onClick: join }, "Join a game")),
       h("button", { class: "btn primary block", type: "button", onClick: () => go("create") }, "👨‍👩‍👧 Start a game for family or friends"),
@@ -326,7 +340,7 @@ function home() {
     h("div", { class: "card" }, h("span", { class: "label" }, "How to play"),
       h("ol", { class: "howto" },
         h("li", {}, h("span", {}, h("b", {}, "Everyone on their own phone. "), "4 to 8 guests, each with a character; bots fill empty chairs. One of you is secretly the killer (two in a big game).")),
-        h("li", {}, h("span", {}, h("b", {}, "Every hour, choose a room. "), "Then see who else came, talk to them (typing or voice), and decide what to do: look around, pick something up, put it back…")),
+        h("li", {}, h("span", {}, h("b", {}, "Walk the house, or pick a room. "), "In first person you roam the manor live and see who's in each room; in classic you pick a room each hour. Either way: talk to whoever's there, pick things up (quietly, if you like), lock a door…")),
         h("li", {}, h("span", {}, h("b", {}, "The killer strikes "), "when they're alone with someone and already carrying a weapon. Storms and power cuts help: a dark room hides who's in it.")),
         h("li", {}, h("span", {}, h("b", {}, "Find the body, look back. "), "You only know what you saw. Everyone sees where they died, roughly when, how, and what's missing.")),
         h("li", {}, h("span", {}, h("b", {}, "Meet, whisper, vote. "), "Share your day (the killer lies), message anyone privately, vote someone out. If the killers catch up, there's a final showdown: survive the day.")))),
@@ -351,6 +365,8 @@ function lobby() {
       : h("div", { class: "card codecard" }, h("span", { class: "label" }, "Game code"), h("div", { class: "bigcode" }, S.code),
         h("p", { class: "muted small" }, "Everyone opens this site on their own phone and joins with the code, or with the link."),
         h("button", { class: "btn primary", type: "button", onClick: share }, "📤 Send the link")),
+    h("div", { class: "card stack" }, h("span", { class: "label" }, !S.public && S.me.host ? "How you'll play (you choose)" : "How you'll play"),
+      styleChoice(S.style, (k) => act("style", { style: k }), S.public || !S.me.host)),
     h("div", { class: "card" }, h("span", { class: "label" }, `Guests · ${S.players.length} of 8`),
       h("div", { class: "plist" }, S.players.map((p) => h("div", { class: "prow" }, face(p), h("b", {}, p.name, p.pid === S.me.pid ? " (you)" : ""),
         p.bot ? h("span", { class: "tag" }, "🤖 bot") : p.host ? h("span", { class: "tag" }, "host") : null, p.voice ? h("span", { class: "tag" }, "🎙️") : null, h("span", { class: "spacer" }),
@@ -658,6 +674,401 @@ function over() {
         })))))))),
     h("button", { class: "btn primary block", type: "button", onClick: () => act("again") }, "Play again with the same people"),
     h("button", { class: "btn ghost block", type: "button", onClick: leave }, "Leave"));
+}
+
+/* ---------- first person: walking the house ----------
+   A raycaster on a canvas: the server sends the floor plan once, then (a few times a second) where you are and what you
+   can see from there. You walk locally and the server checks each step. Nothing here is drawn from a file: walls are
+   painted column by column, people are their portraits on a coat in their colour, objects are emoji on little tables. */
+const FOV = 0.7;
+const PAL = {                     // wall, wallpaper stripe, wainscot, picture rail; floor (near, far); ceiling (top, horizon)
+  library: { wall: [74, 96, 72], stripe: [84, 108, 82], low: [104, 72, 46], rail: [186, 142, 74], floor: ["#7a5436", "#3e2a1a"], ceil: ["#3a2d22", "#5a4836"], art: 1 },
+  kitchen: { wall: [232, 222, 198], stripe: [218, 206, 182], low: [132, 160, 150], rail: [104, 118, 110], floor: ["#c4bbaf", "#78716a"], ceil: ["#d9d0c0", "#f1e9da"], win: 1 },
+  garden: { wall: [64, 120, 62], stripe: [56, 108, 54], low: [46, 90, 44], rail: [76, 136, 70], floor: ["#679a4f", "#34522a"], ceil: ["#7fb4e0", "#d9ebf6"] },
+  study: { wall: [124, 62, 50], stripe: [136, 72, 58], low: [78, 50, 32], rail: [198, 158, 84], floor: ["#654229", "#321f13"], ceil: ["#302219", "#4c3a2d"], art: 1 },
+  ballroom: { wall: [224, 206, 160], stripe: [236, 220, 178], low: [160, 128, 76], rail: [206, 166, 64], floor: ["#d1ab70", "#7e5c31"], ceil: ["#4a3b2c", "#76644c"], win: 1 },
+  cellar: { wall: [112, 104, 96], stripe: [100, 92, 85], low: [76, 70, 63], rail: [62, 58, 54], floor: ["#514b44", "#25221f"], ceil: ["#171513", "#2d2925"] },
+  hall: { wall: [160, 66, 62], stripe: [176, 78, 72], low: [90, 58, 38], rail: [216, 176, 96], floor: ["#963535", "#4f1a1a"], ceil: ["#34281f", "#56463a"], art: 1 },
+};
+const ART = [[46, 74, 110], [128, 58, 44], [70, 104, 60], [150, 118, 50]];
+const ITEM_EMOJI = { candlestick: "🕯️", "heavy atlas": "📕", "kitchen knife": "🔪", "rolling pin": "🥖", "garden shears": "✂️", rope: "🪢", "iron poker": "🏑",
+  "silk scarf": "🧣", "letter opener": "🗡️", "brass paperweight": "🪨", "wine bottle": "🍾", "piano wire": "🎼" };
+const LV = { root: null, cv: null, ctx: null, mini: null, miniBg: null, hud: null, acts: null, feedEl: null, log: null, stickEl: null, talkLabel: null, typingEl: null,
+  on: false, raf: 0, pos: null, snap: null, shown: new Map(), keys: {}, stick: null, look: null, lastTs: 0, lastSend: 0, busy: false,
+  seen: new Set(), feed: [], bubbles: new Map(), chatKey: "", actKey: "", hudKey: "", day: -1, figs: new Map(), bodies: new Map(), items: new Map(),
+  W: 480, H: 300, z: new Float32Array(480), shades: new Map() };
+const $fp = h("div", { id: "fp", hidden: true });
+$app.after($fp);
+
+const houseCell = (x, y) => (S.house.map[Math.floor(y)] || "")[Math.floor(x)] || "#";
+const placeAt = (x, y) => S.house.legend[houseCell(x, y)];
+const doorRoom = (ch) => (ch !== "h" && ch === ch.toLowerCase() && ch !== "#" ? S.house.legend[ch] : null);
+function shutFor(room) { const l = LV.snap?.locks?.[room]; return l != null && room !== LV.snap?.here; }
+function blocked(x, y) {
+  if (LV.snap && !LV.snap.alive) return x < 0.3 || y < 0.3 || x > S.house.map[0].length - 0.3 || y > S.house.map.length - 0.3;   // ghosts drift through walls
+  const ch = houseCell(x, y);
+  if (ch === "#") return true;
+  const room = doorRoom(ch);
+  return !!(room && shutFor(room));
+}
+const clear = (x, y) => { const r = S.house.radius; return !blocked(x - r, y - r) && !blocked(x + r, y - r) && !blocked(x - r, y + r) && !blocked(x + r, y + r); };
+function shade(rgb, s) {
+  const lv = Math.max(0, Math.min(24, Math.round(s * 24)));
+  let arr = LV.shades.get(rgb);
+  if (!arr) LV.shades.set(rgb, (arr = []));
+  return (arr[lv] ||= `rgb(${(rgb[0] * lv) / 24 | 0},${(rgb[1] * lv) / 24 | 0},${(rgb[2] * lv) / 24 | 0})`);
+}
+
+/* people, bodies and objects, drawn once each and reused */
+const portraitURL = (name) => "data:image/svg+xml;charset=utf-8," + encodeURIComponent(portrait(name).replace("<svg ", '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="140" '));
+function figure(name, color, shadow = false) {
+  const key = shadow ? "·shadow" : `${name}|${color}`;
+  if (LV.figs.has(key)) return LV.figs.get(key);
+  const f = h("canvas", { width: 120, height: 300 });
+  const c = f.getContext("2d");
+  const coat = shadow ? "#141219" : color, dark = shadow ? "#0c0b10" : "#2b231d", skin = shadow ? "#141219" : "#e4bb98";
+  c.fillStyle = dark; c.fillRect(38, 224, 18, 66); c.fillRect(64, 224, 18, 66);
+  c.fillStyle = "#16110d"; c.fillRect(33, 284, 25, 13); c.fillRect(62, 284, 25, 13);
+  c.fillStyle = coat;
+  c.beginPath(); c.moveTo(22, 104); c.lineTo(98, 104); c.quadraticCurveTo(108, 106, 104, 128); c.lineTo(96, 236); c.lineTo(24, 236); c.lineTo(16, 128); c.quadraticCurveTo(12, 106, 22, 104); c.fill();
+  c.fillRect(6, 114, 16, 96); c.fillRect(98, 114, 16, 96);
+  c.fillStyle = "rgba(0,0,0,0.18)"; c.fillRect(58, 110, 4, 124);
+  c.fillStyle = skin; c.beginPath(); c.arc(14, 214, 8, 0, 7); c.arc(106, 214, 8, 0, 7); c.fill();
+  c.beginPath(); c.ellipse(60, 60, 28, 36, 0, 0, 7); c.fill();
+  LV.figs.set(key, f);
+  if (!shadow) {
+    const img = new Image();
+    img.onload = () => { c.clearRect(0, 0, 120, 103); c.drawImage(img, 0, 0, 120, 108, 0, 0, 120, 108); f.ready = true; LV.bodies.delete(name); };
+    img.src = portraitURL(name);
+  }
+  return f;
+}
+function bodyImage(b) {
+  if (LV.bodies.has(b.name)) return LV.bodies.get(b.name);
+  const f = figure(b.name, b.color);
+  const c = h("canvas", { width: 300, height: 120 });
+  const x = c.getContext("2d");
+  x.fillStyle = "rgba(128,16,12,0.85)"; x.beginPath(); x.ellipse(150, 100, 140, 18, 0, 0, 7); x.fill();
+  x.save(); x.translate(4, 116); x.rotate(-Math.PI / 2); x.drawImage(f, 0, 0, 112, 280); x.restore();
+  x.globalCompositeOperation = "source-atop"; x.fillStyle = "rgba(120,120,128,0.55)"; x.fillRect(0, 0, 300, 90);
+  if (f.ready) LV.bodies.set(b.name, c);
+  return c;
+}
+function itemImage(item) {
+  if (LV.items.has(item)) return LV.items.get(item);
+  const c = h("canvas", { width: 100, height: 100 });
+  const x = c.getContext("2d");
+  x.fillStyle = "#7a5230"; x.fillRect(8, 60, 84, 9); x.fillStyle = "#5c3d22"; x.fillRect(14, 69, 7, 31); x.fillRect(79, 69, 7, 31);
+  x.font = "42px serif"; x.textAlign = "center"; x.textBaseline = "bottom"; x.fillText(ITEM_EMOJI[item] || "❔", 50, 62);
+  LV.items.set(item, c);
+  return c;
+}
+
+/* the view */
+function fpRoot() {
+  if (LV.root) return LV.root;
+  LV.cv = h("canvas", { class: "fp-canvas", width: LV.W, height: LV.H, "aria-label": "The house, seen through your eyes" });
+  LV.ctx = LV.cv.getContext("2d");
+  LV.mini = h("canvas", { class: "fp-mini", width: 10, height: 10, "aria-hidden": "true" });
+  LV.hud = h("div", { class: "fp-hud" });
+  LV.feedEl = h("div", { class: "fp-feed", "aria-live": "polite" });
+  LV.stickEl = h("div", { class: "fp-stick", hidden: true }, h("i"));
+  const view = h("div", { class: "fp-view" }, LV.cv, LV.mini, LV.hud, LV.feedEl, LV.stickEl, h("div", { class: "fp-cross" }));
+  view.addEventListener("pointerdown", (e) => {
+    const r = view.getBoundingClientRect();
+    view.setPointerCapture(e.pointerId);
+    if (e.clientX - r.left < r.width / 2) {
+      LV.stick = { id: e.pointerId, x0: e.clientX, y0: e.clientY, dx: 0, dy: 0 };
+      Object.assign(LV.stickEl.style, { left: `${e.clientX - r.left}px`, top: `${e.clientY - r.top}px` });
+      LV.stickEl.hidden = false;
+    } else LV.look = { id: e.pointerId, x: e.clientX };
+    e.preventDefault();
+  });
+  view.addEventListener("pointermove", (e) => {
+    if (LV.stick?.id === e.pointerId) {
+      LV.stick.dx = e.clientX - LV.stick.x0; LV.stick.dy = e.clientY - LV.stick.y0;
+      const m = Math.hypot(LV.stick.dx, LV.stick.dy) || 1, k = Math.min(1, 44 / m);
+      LV.stickEl.firstChild.style.transform = `translate(${LV.stick.dx * k}px, ${LV.stick.dy * k}px)`;
+    } else if (LV.look?.id === e.pointerId && LV.pos) { LV.pos.a += (e.clientX - LV.look.x) * 0.0085; LV.look.x = e.clientX; }
+  });
+  const end = (e) => { if (LV.stick?.id === e.pointerId) { LV.stick = null; LV.stickEl.hidden = true; } if (LV.look?.id === e.pointerId) LV.look = null; };
+  view.addEventListener("pointerup", end);
+  view.addEventListener("pointercancel", end);
+  LV.acts = h("div", { class: "fp-actions" });
+  LV.log = h("div", { class: "chatlog small-log", "data-log": "walk" });
+  LV.talkLabel = h("span", { class: "label" }, "Out loud");
+  LV.typingEl = h("p", { class: "typing-line" });
+  LV.root = h("div", { class: "fp stack" }, view, LV.acts,
+    h("div", { class: "card stack" }, LV.talkLabel, LV.log, LV.typingEl,
+      composer("walk", "Say something out loud…", (t) => act("walk:say", { text: t }), "room")),
+    h("p", { class: "muted small center" }, "Left side: drag to walk · Right side: drag to look · Computer: WASD or arrows, Q/E to turn"));
+  return LV.root;
+}
+function fpMount() {
+  const want = !!(me && S && S.phase === "walk" && S.house);
+  if (!want) {
+    if (LV.on) { LV.on = false; cancelAnimationFrame(LV.raf); }
+    $fp.hidden = true;
+    document.body.classList.remove("walking");
+    return;
+  }
+  if (LV.day !== S.day) { LV.day = S.day; LV.pos = null; LV.snap = null; LV.shown.clear(); LV.seen.clear(); LV.feed = []; LV.bubbles.clear(); LV.actKey = LV.chatKey = LV.hudKey = ""; }
+  const root = fpRoot();
+  if (!root.isConnected) $fp.replaceChildren(root);
+  $fp.hidden = false;
+  document.body.classList.add("walking");
+  LV.talkLabel.textContent = S.me.alive ? "Out loud: only the people in the same place hear you" : "Ghost whispers: only the dead hear you";
+  const t = S.typing?.room || [];
+  LV.typingEl.textContent = t.length ? `${t.join(", ")} ${t.length > 1 ? "are" : "is"} typing…` : "";
+  if (!LV.on) { LV.on = true; LV.lastTs = 0; LV.raf = requestAnimationFrame(fpFrame); }
+}
+window.addEventListener("keydown", (e) => {
+  if (!LV.on || /INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName || "")) return;
+  const k = e.key.toLowerCase();
+  LV.keys[k] = true;
+  if (["arrowup", "arrowdown", "arrowleft", "arrowright", " "].includes(k)) e.preventDefault();
+});
+window.addEventListener("keyup", (e) => { LV.keys[e.key.toLowerCase()] = false; });
+window.addEventListener("blur", () => { LV.keys = {}; });
+
+function fpFrame(ts) {
+  if (!LV.on) return;
+  const dt = Math.min(0.05, (ts - (LV.lastTs || ts)) / 1000);
+  LV.lastTs = ts;
+  if (LV.pos && LV.snap) {
+    fpMove(dt);
+    const k = Math.min(1, dt * 10);
+    for (const o of LV.shown.values()) { o.x += (o.tx - o.x) * k; o.y += (o.ty - o.y) * k; }
+    fpDraw();
+    fpMini();
+    fpFeed(ts);
+    fpActions();
+  }
+  if (ts - LV.lastSend > 150 && !LV.busy) fpSync();
+  LV.raf = requestAnimationFrame(fpFrame);
+}
+function fpMove(dt) {
+  const p = LV.pos, k = LV.keys;
+  let f = (k.w || k.arrowup ? 1 : 0) - (k.s || k.arrowdown ? 1 : 0);
+  let st = (k.d ? 1 : 0) - (k.a ? 1 : 0);
+  const turn = (k.arrowright || k.e ? 1 : 0) - (k.arrowleft || k.q ? 1 : 0);
+  if (LV.stick) { f += Math.max(-1, Math.min(1, -LV.stick.dy / 44)); st += Math.max(-1, Math.min(1, LV.stick.dx / 44)); }
+  p.a += turn * 2.3 * dt;
+  const len = Math.hypot(f, st);
+  if (len < 0.08) return;
+  const sp = (S.house.walk * dt * (LV.snap.alive ? 1 : 1.3)) / Math.max(1, len);
+  const mx = (Math.cos(p.a) * f - Math.sin(p.a) * st) * sp, my = (Math.sin(p.a) * f + Math.cos(p.a) * st) * sp;
+  if (clear(p.x + mx, p.y)) p.x += mx;
+  if (clear(p.x, p.y + my)) p.y += my;
+}
+async function fpSync() {
+  LV.busy = true;
+  LV.lastSend = performance.now();
+  const body = { pid: me.pid, token: me.token };
+  if (LV.pos) Object.assign(body, { x: LV.pos.x, y: LV.pos.y, a: LV.pos.a });
+  try {
+    const r = await fetch(`/api/game/${me.code}/walk`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    if (r.ok) fpAccept(await r.json());
+  } catch { /* a moment offline: try again */ } finally { LV.busy = false; }
+}
+function fpAccept(s) {
+  if (s.now) clockSkew = s.now * 1000 - Date.now();
+  if (s.phase !== "walk") { poll(); return; }
+  if (!LV.pos || Math.hypot(s.me.x - LV.pos.x, s.me.y - LV.pos.y) > 1.6) LV.pos = { x: s.me.x, y: s.me.y, a: LV.pos ? LV.pos.a : s.me.a };
+  const seen = new Set();
+  for (const o of s.others) {
+    seen.add(o.pid);
+    const cur = LV.shown.get(o.pid);
+    if (cur) Object.assign(cur, { tx: o.x, ty: o.y, name: o.name, color: o.color, ghost: o.ghost, dark: o.dark });
+    else LV.shown.set(o.pid, { ...o, tx: o.x, ty: o.y });
+  }
+  for (const k of [...LV.shown.keys()]) if (!seen.has(k)) LV.shown.delete(k);
+  const now = performance.now();
+  for (const f of s.feed) {
+    if (LV.seen.has(`f${f.id}`)) continue;
+    LV.seen.add(`f${f.id}`);
+    LV.feed.push({ ...f, until: now + 5200 });
+    sfx({ kill: "scream", found: "scream", take: "msg", put: "msg", lock: "door" }[f.kind]);
+  }
+  for (const m of s.chat) {
+    if (LV.seen.has(`c${m.id}`)) continue;
+    LV.seen.add(`c${m.id}`);
+    LV.bubbles.set(m.pid, { text: m.text.length > 38 ? `${m.text.slice(0, 36)}…` : m.text, until: now + 4800 });
+    if (m.pid !== S.me.pid) sfx("msg");
+  }
+  const chatKey = s.chat.map((m) => m.id).join();
+  if (chatKey !== LV.chatKey) {
+    LV.chatKey = chatKey;
+    const atBottom = LV.log.scrollHeight - LV.log.scrollTop - LV.log.clientHeight < 60;
+    LV.log.replaceChildren(...(s.chat.length ? s.chat.map(msgEl) : [h("p", { class: "muted small center" }, "Walk up to someone and say hello.")]));
+    if (atBottom) LV.log.scrollTop = LV.log.scrollHeight;
+  }
+  LV.snap = s;
+  fpHud();
+}
+function fpHud() {
+  const s = LV.snap, lock = s.locks[s.here];
+  const key = [s.here, s.dark, s.hour, s.carrying, lock == null ? "" : Math.ceil(lock)].join("|");
+  if (key === LV.hudKey) return;
+  LV.hudKey = key;
+  const r = roomOf(s.here);
+  LV.hud.replaceChildren(...[h("span", { class: "fp-tag" }, r ? `${r.emoji} ${r.name}` : "🚪 The hall", s.dark ? " · pitch dark" : ""),
+    h("span", { class: "fp-tag" }, "🕰️ ", S.hours[s.hour] || ""),
+    s.carrying ? h("span", { class: "fp-tag gold" }, `${ITEM_EMOJI[s.carrying] || "✋"} ${s.carrying}`) : null,
+    r && lock != null ? h("span", { class: "fp-tag red" }, lock < 0 ? "🌧 Rain: nobody gets in" : `🔒 Locked · ${Math.ceil(lock)}s`) : null].filter(Boolean));
+}
+function fpActions() {
+  const s = LV.snap, p = LV.pos, H = S.house, out = [];
+  const near = (x, y, r) => Math.hypot(x - p.x, y - p.y) <= r;
+  if (s.alive) {
+    if (!s.carrying) for (const it of s.items) if (near(it.x, it.y, H.reach)) out.push(["walk:take", { item: it.item }, `✋ Take the ${it.item}`]);
+    const spot = s.carrying && H.spots[s.carrying];
+    if (spot && roomOf(s.here)?.items.includes(s.carrying) && near(spot[0], spot[1], H.reach + 0.6)) out.push(["walk:put", {}, `↩️ Put back the ${s.carrying}`]);
+    if (S.me.role === "killer" && s.carrying && !s.struck && roomOf(s.here)) {
+      for (const o of s.others) if (!o.ghost && who(o.pid)?.role !== "killer" && near(o.x, o.y, H.killReach)) out.push(["walk:strike", { target: o.pid }, `🔪 Strike ${o.name || "the shape in the dark"}`, "danger"]);
+    }
+    if (s.bodies.length && !s.showdown) out.push(["walk:report", {}, "🚨 Report the body", "danger"]);
+    const lock = s.locks[s.here];
+    if (roomOf(s.here) && lock !== -1) out.push(lock > 0 ? ["walk:unlock", {}, "🔓 Unlock the door"] : ["walk:lock", {}, "🔒 Lock the door"]);
+  }
+  const key = `${s.alive}|${out.map((a) => a[2]).join("|")}`;
+  if (key === LV.actKey) return;
+  LV.actKey = key;
+  LV.acts.replaceChildren(...out.map(([type, extra, label, cls]) => h("button", { class: `btn sm ${cls || ""}`, type: "button", onClick: () => { sfx("tick"); act(type, extra); } }, label)),
+    ...(out.length ? [] : [h("span", { class: "muted small" }, s.alive ? "Walk up to people and things to do something." : "👻 You're a ghost: drift through the walls and watch.")]));
+}
+function fpFeed(ts) {
+  LV.feed = LV.feed.filter((f) => f.until > ts).slice(-3);
+  const key = LV.feed.map((f) => f.id).join();
+  if (key === LV.feedEl.dataset.key) return;
+  LV.feedEl.dataset.key = key;
+  LV.feedEl.replaceChildren(...LV.feed.map((f) => h("div", { class: `fp-note ${f.kind}` }, f.text)));
+}
+function fpDraw() {
+  const { ctx, W, H } = LV, p = LV.pos, s = LV.snap;
+  const pal = PAL[placeAt(p.x, p.y)] || PAL.hall;
+  const dim = s.dark ? 0.2 : 1;
+  let gr = ctx.createLinearGradient(0, 0, 0, H / 2);
+  gr.addColorStop(0, pal.ceil[0]); gr.addColorStop(1, pal.ceil[1]);
+  ctx.fillStyle = gr; ctx.fillRect(0, 0, W, H / 2);
+  gr = ctx.createLinearGradient(0, H / 2, 0, H);
+  gr.addColorStop(0, pal.floor[1]); gr.addColorStop(1, pal.floor[0]);
+  ctx.fillStyle = gr; ctx.fillRect(0, H / 2, W, H / 2);
+  const dx = Math.cos(p.a), dy = Math.sin(p.a), px = -dy * FOV, py = dx * FOV;
+  for (let x = 0; x < W; x++) {
+    const cam = (2 * x) / W - 1, rx = dx + px * cam, ry = dy + py * cam;
+    let mx = Math.floor(p.x), my = Math.floor(p.y);
+    const ddx = Math.abs(1 / rx), ddy = Math.abs(1 / ry);
+    const stX = rx < 0 ? -1 : 1, stY = ry < 0 ? -1 : 1;
+    let sx = rx < 0 ? (p.x - mx) * ddx : (mx + 1 - p.x) * ddx, sy = ry < 0 ? (p.y - my) * ddy : (my + 1 - p.y) * ddy;
+    let side = 0, prev = houseCell(p.x, p.y), hit = "#";
+    for (let n = 0; n < 80; n++) {
+      if (sx < sy) { sx += ddx; mx += stX; side = 0; } else { sy += ddy; my += stY; side = 1; }
+      const ch = houseCell(mx, my), room = doorRoom(ch);
+      if (ch === "#" || (room && shutFor(room))) { hit = ch; break; }
+      prev = ch;
+    }
+    const dist = Math.max(0.05, side === 0 ? sx - ddx : sy - ddy);
+    const lh = H / dist, top = (H - lh) / 2;
+    let wx = side === 0 ? p.y + dist * ry : p.x + dist * rx;
+    wx -= Math.floor(wx);
+    const sh = Math.max(0.22, Math.min(1, 1.35 - dist / 9)) * (side ? 0.82 : 1) * dim;
+    if (hit !== "#") {                                           // a locked door, seen from outside
+      ctx.fillStyle = shade(Math.floor(wx * 5) % 2 ? [128, 86, 48] : [112, 74, 40], sh); ctx.fillRect(x, top, 1, lh);
+      if (wx > 0.43 && wx < 0.57) { ctx.fillStyle = shade([226, 186, 74], sh); ctx.fillRect(x, top + lh * 0.47, 1, lh * 0.09); }
+    } else {
+      const pl = PAL[S.house.legend[prev]] || PAL.hall;
+      const up = lh * 0.62, rail = Math.max(1, lh * 0.025);
+      ctx.fillStyle = shade(Math.floor(wx * 8) % 2 ? pl.stripe : pl.wall, sh); ctx.fillRect(x, top, 1, up);
+      ctx.fillStyle = shade(pl.rail, sh); ctx.fillRect(x, top + up, 1, rail);
+      ctx.fillStyle = shade(pl.low, sh); ctx.fillRect(x, top + up + rail, 1, lh - up - rail);
+      if ((pl.art || pl.win) && wx > 0.22 && wx < 0.78 && (mx * 7 + my * 13) % 3 === 0) {
+        const edge = wx < 0.27 || wx > 0.73;
+        ctx.fillStyle = shade(edge ? [98, 70, 30] : pl.win ? [176, 212, 236] : ART[(mx + my) % ART.length], sh);
+        ctx.fillRect(x, top + lh * 0.15, 1, lh * 0.3);
+      }
+    }
+    LV.z[x] = dist;
+  }
+  const inv = 1 / (px * dy - dx * py);
+  const project = (x, y) => { const sx = x - p.x, sy = y - p.y; return { tx: inv * (dy * sx - dx * sy), ty: inv * (-py * sx + px * sy) }; };
+  const sprites = [];
+  for (const o of LV.shown.values()) sprites.push({ x: o.x, y: o.y, img: o.dark ? figure("", "", true) : figure(o.name, o.color), h: 0.82, alpha: o.ghost ? 0.45 : 1, name: o.dark ? "" : o.name, pid: o.pid });
+  for (const b of s.bodies) sprites.push({ x: b.x, y: b.y, img: bodyImage(b), h: 0.3, alpha: 1, name: s.dark ? "" : `✝ ${b.name}` });
+  for (const it of s.items) sprites.push({ x: it.x, y: it.y, img: itemImage(it.item), h: 0.46, alpha: s.dark ? 0.35 : 1 });
+  for (const sp of sprites) Object.assign(sp, project(sp.x, sp.y));
+  const now = performance.now();
+  sprites.filter((sp) => sp.ty > 0.12).sort((a, b) => b.ty - a.ty).forEach((sp) => {
+    const unit = H / sp.ty, hgt = unit * sp.h, wid = hgt * (sp.img.width / sp.img.height);
+    const scr = (W / 2) * (1 + sp.tx / sp.ty), left = scr - wid / 2, top = H / 2 + unit / 2 - hgt;
+    const x0 = Math.max(0, Math.floor(left)), x1 = Math.min(W, Math.ceil(left + wid));
+    ctx.globalAlpha = sp.alpha;
+    let run = -1;
+    for (let x = x0; x <= x1; x++) {
+      const vis = x < x1 && sp.ty < LV.z[x];
+      if (vis && run < 0) run = x;
+      if (!vis && run >= 0) {
+        ctx.drawImage(sp.img, ((run - left) / wid) * sp.img.width, 0, ((x - run) / wid) * sp.img.width, sp.img.height, run, top, x - run, hgt);
+        run = -1;
+      }
+    }
+    ctx.globalAlpha = 1;
+    const mid = Math.max(0, Math.min(W - 1, Math.round(scr)));
+    if (sp.ty < LV.z[mid] && sp.ty < 7) {
+      const size = Math.max(9, Math.min(15, 30 / sp.ty));
+      ctx.font = `700 ${size}px Inter, sans-serif`; ctx.textAlign = "center"; ctx.textBaseline = "bottom";
+      const bub = sp.pid && LV.bubbles.get(sp.pid);
+      if (bub && bub.until > now) {
+        const tw = ctx.measureText(bub.text).width + 12, by = top - size - 10;
+        ctx.fillStyle = "rgba(255,253,248,0.94)"; ctx.fillRect(scr - tw / 2, by - size - 4, tw, size + 8);
+        ctx.fillStyle = "#2a1f16"; ctx.fillText(bub.text, scr, by + 3);
+      }
+      if (sp.name) {
+        ctx.fillStyle = "rgba(20,14,10,0.6)"; ctx.fillText(sp.name, scr + 1, top - 3);
+        ctx.fillStyle = "#fff8ea"; ctx.fillText(sp.name, scr, top - 4);
+      }
+    }
+  });
+  for (const [room, [ddx, ddy]] of Object.entries(S.house.doors)) {    // a sign over every door, seen from the hall
+    if (s.here === room) continue;
+    const { tx, ty } = project(ddx + 0.5, ddy + 0.5);
+    if (ty < 0.3 || ty > 9) continue;
+    const scr = (W / 2) * (1 + tx / ty), col = Math.round(scr);
+    if (col < 0 || col >= W || LV.z[col] < ty - 0.6) continue;
+    const r = roomOf(room), size = Math.max(9, Math.min(16, 34 / ty));
+    ctx.font = `700 ${size}px Inter, sans-serif`; ctx.textAlign = "center"; ctx.textBaseline = "bottom";
+    const label = `${r?.emoji || ""} ${r?.name || room}${s.locks[room] != null ? " 🔒" : ""}`;
+    const y = H / 2 - H / ty / 2 - 4, tw = ctx.measureText(label).width + 10;
+    ctx.fillStyle = "rgba(42,31,22,0.72)"; ctx.fillRect(scr - tw / 2, y - size - 2, tw, size + 5);
+    ctx.fillStyle = "#fbefd2"; ctx.fillText(label, scr, y + 1);
+  }
+  if (s.dark) { ctx.fillStyle = "rgba(10,8,16,0.55)"; ctx.fillRect(0, 0, W, H); }
+}
+function fpMini() {
+  const map = S.house.map, k = 5, c = LV.mini.getContext("2d"), s = LV.snap;
+  if (LV.mini.width !== map[0].length * k) { LV.mini.width = map[0].length * k; LV.mini.height = map.length * k; LV.miniBg = null; }
+  if (!LV.miniBg) {
+    LV.miniBg = h("canvas", { width: LV.mini.width, height: LV.mini.height });
+    const b = LV.miniBg.getContext("2d");
+    map.forEach((row, y) => [...row].forEach((ch, x) => {
+      const pl = PAL[S.house.legend[ch]];
+      b.fillStyle = ch === "#" ? "#2a1f16" : pl ? `rgb(${pl.wall.join(",")})` : "#999";
+      b.fillRect(x * k, y * k, k, k);
+    }));
+  }
+  c.clearRect(0, 0, LV.mini.width, LV.mini.height);
+  c.drawImage(LV.miniBg, 0, 0);
+  for (const [room, [x, y]] of Object.entries(S.house.doors)) if (s.locks[room] != null) { c.fillStyle = "#c0392b"; c.fillRect(x * k, y * k, k, k); }
+  for (const b of s.bodies) { c.fillStyle = "#b3261e"; c.fillRect(b.x * k - 2, b.y * k - 2, 4, 4); }
+  for (const o of LV.shown.values()) { c.fillStyle = o.dark ? "#000" : o.color; c.beginPath(); c.arc(o.x * k, o.y * k, 2.2, 0, 7); c.fill(); }
+  const p = LV.pos;
+  c.strokeStyle = "#fff"; c.lineWidth = 1.5; c.beginPath(); c.moveTo(p.x * k, p.y * k); c.lineTo((p.x + Math.cos(p.a) * 1.6) * k, (p.y + Math.sin(p.a) * 1.6) * k); c.stroke();
+  c.fillStyle = "#fff"; c.beginPath(); c.arc(p.x * k, p.y * k, 2.8, 0, 7); c.fill();
+}
+function walk() {
+  return h("section", { class: "stack" }, bar(S.showdown ? "The last day" : `Day ${S.day}`), ghostBanner(), dayHeader(),
+    S.showdown ? h("div", { class: "card warn" }, h("b", {}, "The final showdown. "), S.me.role === "killer" ? "Catch every guest before dusk." : "Stay alive until dusk: keep moving, lock yourself in.") : null,
+    voiceTip());
 }
 
 /* ---------- start ---------- */

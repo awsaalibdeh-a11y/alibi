@@ -3,6 +3,7 @@
     python -m unittest discover tests
 """
 
+import math
 import os
 import sys
 import unittest
@@ -12,6 +13,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 os.chdir(ROOT)
 import game  # noqa: E402
+import live  # noqa: E402
 from app import app  # noqa: E402
 
 os.environ.pop("OPENAI_API_KEY", None)                   # after the app's load_dotenv: no AI calls in tests
@@ -203,6 +205,133 @@ class Rules(unittest.TestCase):
         self.assertTrue(ps[0]["alive"] and ps[2]["alive"])
 
 
+class Clock:
+    """A pretend clock for first-person games, which run on real time."""
+    def __init__(self):
+        self.t = 1_000_000.0
+
+    def __call__(self):
+        return self.t
+
+
+def walking_game(names=("Ann", "Ben", "Cat", "Kay"), bots=0):
+    g = game.new_game(style="live")
+    people = [game.add_player(g, n) for n in names]
+    for _ in range(bots):
+        game.add_bot(g)
+    game.start(g)
+    for p in g["players"]:
+        p["role"] = "guest"
+    game.new_day(g)
+    d = game.today(g)
+    for b in d["beats"]:
+        b.update(fx=None)
+    return g, d, people
+
+
+def stand(g, d, p, x, y, a=0.0):
+    d["live"]["pos"][p["pid"]] = {"x": x, "y": y, "a": a, "t": game.now()}
+    d["live"]["loc"][p["pid"]] = live.place_at(live.lay(g), x, y)
+
+
+class FirstPerson(unittest.TestCase):
+    def test_the_house_fits_every_party_size(self):
+        for n in range(3, 7):
+            ids = tuple(game.ROOM_ORDER[:n])
+            ly = live.layout(ids)
+            for room in ids:
+                x0, y0, x1, y1 = ly["boxes"][room]
+                for item in game.ROOM[room]["items"]:
+                    x, y = ly["spots"][item]
+                    self.assertTrue(x0 < x < x1 and y0 < y < y1, (room, item))
+                    self.assertEqual(live.place_at(ly, *live.stand_by(ly, item)), room)
+                dx, dy = ly["doors"][room]
+                sides = {live.place_at(ly, dx + 0.5, dy - 0.5), live.place_at(ly, dx + 0.5, dy + 1.5)}
+                self.assertEqual(sides, {room, "hall"}, f"the {room} door opens onto the hall")
+
+    def test_walls_stop_you_and_a_locked_door_keeps_people_out(self):
+        g, d, (a, b, c, k) = walking_game()
+        ly = live.lay(g)
+        dx, dy = ly["doors"]["library"]
+        stand(g, d, a, dx + 0.5, dy + 1.6, -math.pi / 2)                     # in the hall, outside the library door
+        stand(g, d, b, dx + 0.5, dy - 1.5)                                    # inside the library
+        d["live"]["pos"][a["pid"]]["t"] -= 1
+        self.assertFalse(live.move(g, d, a, 0.1, 0.1, 0), "no walking into a wall")
+        self.assertIsNone(live.lock(g, d, b))
+        d["live"]["pos"][a["pid"]]["t"] -= 1
+        self.assertFalse(live.move(g, d, a, dx + 0.5, dy + 0.5, 0), "locked out")
+        d["live"]["pos"][b["pid"]]["t"] -= 1
+        self.assertTrue(live.move(g, d, b, dx + 0.5, dy + 0.5, 0), "but whoever's inside can always walk out")
+
+    def test_you_only_see_your_own_room_and_ghosts_see_everyone(self):
+        g, d, (a, b, c, k) = walking_game()
+        ly = live.lay(g)
+        stand(g, d, a, *live.somewhere(ly, "library"))
+        stand(g, d, b, *live.somewhere(ly, "library"))
+        stand(g, d, c, *live.somewhere(ly, "kitchen"))
+        seen = {o["pid"] for o in live.snapshot(g, d, a)["others"]}
+        self.assertEqual(seen, {b["pid"]})
+        c["alive"] = False
+        self.assertEqual({o["pid"] for o in live.snapshot(g, d, c)["others"]}, {a["pid"], b["pid"], k["pid"]})
+
+    def test_a_take_is_only_seen_by_whoever_is_facing_you(self):
+        g, d, (a, b, c, k) = walking_game()
+        ly = live.lay(g)
+        sx, sy = live.stand_by(ly, "candlestick")
+        stand(g, d, k, sx, sy)
+        stand(g, d, a, sx + 3, sy + 1, math.pi)                               # facing the candlestick
+        stand(g, d, b, sx + 3, sy + 2, 0)                                     # looking the other way
+        self.assertIsNone(live.take(g, d, k, "candlestick"))
+        text = lambda p: " ".join(e["text"] for e in d["live"]["log"][p["pid"]])
+        self.assertIn("Kay took the candlestick", text(a))
+        self.assertNotIn("candlestick", text(b))
+        self.assertEqual(live.take(g, d, a, "heavy atlas"), "Get closer to it first.")
+
+    def test_a_strike_in_front_of_someone_and_the_report(self):
+        g, d, (a, b, c, k) = walking_game()
+        k["role"] = "killer"
+        g["carry"][k["pid"]] = "kitchen knife"
+        ly = live.lay(g)
+        x0, y0, _, _ = ly["boxes"]["kitchen"]
+        x, y = x0 + 3.5, y0 + 2.5
+        stand(g, d, k, x, y)
+        stand(g, d, c, x + 0.8, y)
+        stand(g, d, a, x - 2, y, 0)                                           # facing them both
+        self.assertEqual(live.strike(g, d, a, c["pid"]), "You can't do that.")
+        self.assertIsNone(live.strike(g, d, k, c["pid"]))
+        self.assertFalse(c["alive"])
+        self.assertEqual(d["kill"]["witnesses"], [a["pid"]])
+        self.assertIn("You saw Kay strike Cat", " ".join(e["text"] for e in d["live"]["log"][a["pid"]]))
+        self.assertEqual(live.report(g, d, b), "There's nothing to report here.", "Ben's somewhere else")
+        self.assertIsNone(live.report(g, d, a))
+        self.assertEqual(g["phase"], "body")
+        self.assertEqual(d["found"]["by"][0], a["pid"])
+        self.assertEqual(len(d["hours"]), 1, "the hour so far is written down for the meeting")
+
+    def test_a_first_person_bots_game_plays_to_the_end(self):
+        clock = Clock()
+        with mock.patch.object(game, "now", clock), mock.patch.dict(game.T, {"walk_hour": 12}), \
+                mock.patch.object(game.threading, "Thread", side_effect=lambda target, args, daemon: mock.Mock(start=lambda: target(*args))):
+            for _ in range(4):
+                g = game.new_game(style="live")
+                for _ in range(6):
+                    game.add_bot(g)
+                game.start(g)
+                phases = set()
+                for _ in range(20000):
+                    if g["phase"] == "over":
+                        break
+                    if g["phase"] == "walk":
+                        clock.t += 0.25
+                    else:
+                        expire(g)
+                    game.tick(g)
+                    phases.add(g["phase"])
+                self.assertEqual(g["phase"], "over")
+                self.assertIn("walk", phases)
+                self.assertNotIn("move", phases)
+
+
 class Api(unittest.TestCase):
     def setUp(self):
         self.c = app.test_client()
@@ -233,7 +362,7 @@ class Api(unittest.TestCase):
         self.assertEqual(r.status_code, 403)
 
     def test_queue_fills_with_bots(self):
-        game.QUEUE["code"] = None
+        game.QUEUE["classic"] = None
         a = self.c.post("/api/play", json={"mode": "queue", "name": "A"}).get_json()
         b = self.c.post("/api/play", json={"mode": "queue", "name": "B"}).get_json()
         self.assertEqual(a["code"], b["code"])

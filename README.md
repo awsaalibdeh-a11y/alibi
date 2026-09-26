@@ -3,6 +3,13 @@
 A murder party game where **the killer is one of the players**, each on their own phone. 4 to 8 players; bots fill
 the empty chairs.
 
+- **Two ways to play**, chosen when you start or queue a game (the host can switch in the lobby):
+  - **First person:** walk the manor live, in 3D, on your phone (drag on the left to walk, on the right to look; WASD
+    on a computer). You see whoever's in the same room, watch them come and go, take things and put them back, and you
+    can lock a door behind you for a few seconds. Anyone facing you sees what you do; anyone looking away doesn't. The
+    killer walks up to someone and strikes; a body lies where it fell until someone reports it. Talk out loud to
+    whoever's near you. Each hour lasts a minute.
+  - **Classic:** each hour, pick a room, then meet whoever came (below).
 - **A story.** Lord Ashcombe's will is read at dusk. Every guest gets a character (the Heir, the Doctor, the Actress…),
   and every hour has a story beat: some just colour the day, some change it (a power cut leaves a room pitch dark and
   hides who's in it; rain locks the garden).
@@ -58,6 +65,7 @@ python -m unittest discover tests     # rules (kills, discovery, votes), whole b
 ```
 app.py            Flask: the page, security headers
 game.py           rooms, the day, kills, views per player, the clock, bots, the API
+live.py           first person: the floor plan, walking, seeing, taking, locking, striking, bots on their feet
 static/app.js     the phone: home, lobby, role, the day, the body, chat, vote, the end
 static/style.css  a noir look
 ```
