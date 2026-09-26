@@ -263,6 +263,34 @@ class Api(unittest.TestCase):
             self.c.post(f"/api/game/{g['code']}", json={"pid": me["pid"], "token": me["token"], "type": "chat", "text": f"{bot['name']}, where were you?"})
         self.assertTrue(any(m["pid"] == bot["pid"] for m in d["chat"][before:]), "the bot you named answers straight away")
 
+    def test_leaving_mid_game_hands_your_seat_to_a_bot(self):
+        me = self.c.post("/api/play", json={"mode": "bots", "name": "Ann"}).get_json()
+        g = game.GAMES[me["code"]]
+        g["deadline"] = 0
+        url, auth = f"/api/game/{me['code']}", {"pid": me["pid"], "token": me["token"]}
+        self.c.get(url, query_string=auth)
+        self.assertEqual(g["phase"], "move")
+        self.c.post(url, json={**auth, "type": "leave"})
+        ann = game.player(g, me["pid"])
+        self.assertTrue(ann["bot"] and ann["left"])
+        self.assertNotEqual(g["phase"], "move", "nobody left to wait for: the bots move on at once")
+
+    def test_reactions_on_chat(self):
+        g = game.new_game()
+        me = game.add_player(g, "Ann")
+        for _ in range(3):
+            game.add_bot(g)
+        game.start(g)
+        game.new_day(g)
+        game.set_phase(g, "talk", 30)
+        url, auth = f"/api/game/{g['code']}", {"pid": me["pid"], "token": me["token"]}
+        mid = self.c.post(url, json={**auth, "type": "chat", "text": "hello"}).get_json()["chat"][-1]["id"]
+        r = self.c.post(url, json={**auth, "type": "react", "id": mid, "emoji": "😂"}).get_json()
+        self.assertEqual(next(m for m in r["chat"] if m["id"] == mid)["reactions"], {"😂": [me["pid"]]})
+        r = self.c.post(url, json={**auth, "type": "react", "id": mid, "emoji": "😂"}).get_json()
+        self.assertEqual(next(m for m in r["chat"] if m["id"] == mid)["reactions"], {}, "tap again to take it back")
+        self.assertEqual(self.c.post(url, json={**auth, "type": "react", "id": mid, "emoji": "💩"}).status_code, 400)
+
     def test_a_dead_bot_answers_a_ghost(self):
         g = game.new_game()
         me = game.add_player(g, "Ann")

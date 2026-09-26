@@ -82,7 +82,8 @@ MIN_PLAYERS, MAX_PLAYERS, QUEUE_SIZE = 4, 8, 6
 T = {"countdown": 4, "roles": 14, "move": 20, "room": 60, "body": 12, "quiet": 8, "talk": 150, "vote": 35, "result": 9, "queue": 30}
 ROOMS_FOR = {4: 3, 5: 4, 6: 4, 7: 5, 8: 6}                            # guests -> rooms: few enough that people keep meeting
 ROOM_ORDER = ["library", "kitchen", "garden", "study", "ballroom", "cellar"]
-HUMAN_KILLER_WEIGHT = 2.5                                             # people get the knife more often than bots do
+REACTIONS = ["👍", "😂", "😱", "🤔", "🔪", "👀"]
+HUMAN_KILLER_WEIGHT = 2.5                                            # people get the knife more often than bots do
 BOT_LIAR_SKILL = 0.25                                                 # how often a killer bot tells a lie nobody can catch
 
 LOCK = threading.RLock()
@@ -596,7 +597,46 @@ def view(g, p):
             v["ejected"] = {"name": name_of(g, ej), "role": player(g, ej)["role"]} if ej else None
     if over:
         v["truth"] = truth(g)
+        v["awards"] = awards(g)
     return v
+
+
+def awards(g):
+    """A few superlatives for the end of the game: bragging rights only."""
+    votes = {p["pid"]: 0 for p in g["players"]}
+    msgs = {p["pid"]: 0 for p in g["players"]}
+    for d in g["days"]:
+        for target in d["votes"].values():
+            if target in votes:
+                votes[target] += 1
+        for m in d["chat"] + [m for lst in d["roomchat"].values() for m in lst]:
+            if m["pid"] in msgs and not m.get("claim"):
+                msgs[m["pid"]] += 1
+    s = lambda n, word: f"{n} {word}{'' if n == 1 else 's'}"
+    out = []
+    if any(votes.values()):
+        top = max(votes, key=votes.get)
+        out.append({"emoji": "🔍", "title": "Prime Suspect", "name": name_of(g, top), "detail": s(votes[top], "vote") + " against them"})
+        killers = [q for q in votes if player(g, q)["role"] == "killer"]
+        if killers:
+            cool = min(killers, key=votes.get)
+            out.append({"emoji": "🎭", "title": "Best Poker Face", "name": name_of(g, cool), "detail": f"the killer, with only {s(votes[cool], 'vote')} all game"})
+    if any(msgs.values()):
+        chatty, quiet = max(msgs, key=msgs.get), min(msgs, key=msgs.get)
+        out.append({"emoji": "💬", "title": "Chatterbox", "name": name_of(g, chatty), "detail": s(msgs[chatty], "message")})
+        if msgs[quiet] < msgs[chatty]:
+            out.append({"emoji": "🤫", "title": "Man of Mystery", "name": name_of(g, quiet), "detail": "never said a word" if not msgs[quiet] else f"only {s(msgs[quiet], 'message')}"})
+    takes = {}
+    for d in g["days"]:
+        for hr in d["hours"]:
+            for evs in hr["events"].values():
+                for e in evs:
+                    if e.get("kind") == "take":
+                        takes[e["pid"]] = takes.get(e["pid"], 0) + 1
+    if takes:
+        thief = max(takes, key=takes.get)
+        out.append({"emoji": "🧤", "title": "Sticky Fingers", "name": name_of(g, thief), "detail": f"picked up {s(takes[thief], 'thing')}"})
+    return out
 
 
 def truth(g):
@@ -1062,8 +1102,25 @@ def act(code):
                 if g["host"] == p["pid"]:
                     nxt = next((q for q in g["players"] if not q["bot"]), None)
                     g["host"] = nxt["pid"] if nxt else None
-            else:
-                p["left"] = True
+            else:                                                      # mid-game: a bot takes over your seat, so nobody waits for you
+                p.update(left=True, bot=True, voice=False)
+                if g["host"] == p["pid"]:
+                    nxt = next((q for q in g["players"] if not q["bot"]), None)
+                    g["host"] = nxt["pid"] if nxt else None
+            bump(g)
+        elif kind == "react" and d:
+            emoji, mid = body.get("emoji"), body.get("id")
+            msg = next((m for m in d["chat"] + [m for lst in d["roomchat"].values() for m in lst] if m["id"] == mid), None)
+            if emoji not in REACTIONS or not msg:
+                return _err("Can't react to that.")
+            reactions = msg.setdefault("reactions", {})
+            mine = [e for e, pids in reactions.items() if p["pid"] in pids]
+            for e in mine:
+                reactions[e].remove(p["pid"])
+                if not reactions[e]:
+                    del reactions[e]
+            if emoji not in mine:                                      # same emoji again takes it back, another one swaps
+                reactions.setdefault(emoji, []).append(p["pid"])
             bump(g)
         elif kind == "move" and g["phase"] == "move" and p["alive"]:
             room = body.get("room")

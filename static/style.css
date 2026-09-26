@@ -34,7 +34,7 @@ button { cursor: pointer; }
 :focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
 [hidden] { display: none !important; }
 #app { max-width: 44rem; margin: 0 auto; padding: max(0.8rem, env(safe-area-inset-top)) 1rem calc(4rem + env(safe-area-inset-bottom)); }
-#app > div > section { animation: rise 0.3s var(--ease); }
+#app > div > section.enter { animation: rise 0.3s var(--ease); }
 @keyframes rise { from { opacity: 0; transform: translateY(6px); } }
 
 /* ---------- type ---------- */
@@ -232,3 +232,23 @@ table.truth { border-collapse: collapse; font-size: 0.8rem; min-width: 100%; }
 .loadline { font-family: var(--type); color: var(--ink-2); }
 @media (min-width: 640px) { .rooms { grid-template-columns: repeat(3, 1fr); } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+
+/* ---------- small pleasures: hour dots, reactions, awards, confetti ---------- */
+.hourdots { display: inline-flex; gap: 3px; margin-left: 0.3rem; }
+.hourdots i { width: 6px; height: 6px; border-radius: 50%; background: rgba(92, 64, 34, 0.2); }
+.hourdots i.done { background: var(--gold); }
+.hourdots i.now { background: var(--red); box-shadow: 0 0 0 2px rgba(179, 38, 30, 0.2); }
+.reacts { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem; margin-top: 0.3rem; }
+.react { min-height: 1.6rem; padding: 0 0.45rem; border: 0; border-radius: 999px; background: var(--bg-3); color: var(--ink-2); font-size: 0.8rem; }
+.react.mine { background: var(--gold-soft); box-shadow: inset 0 0 0 1.5px var(--gold-2); }
+.react.add { background: transparent; color: var(--muted); opacity: 0.6; }
+.cmsg:hover .react.add, .react.add:focus-visible { opacity: 1; }
+.picker { display: inline-flex; gap: 0.1rem; padding: 0.15rem; border-radius: 999px; background: var(--bg-2); box-shadow: var(--shadow), inset 0 0 0 1px var(--line); animation: rise 0.15s var(--ease); }
+.picker button { width: 2rem; height: 2rem; border: 0; border-radius: 50%; background: transparent; font-size: 1.1rem; }
+.picker button:hover { background: var(--bg-3); }
+.awards { display: grid; gap: 0.55rem; }
+.award { display: flex; align-items: center; gap: 0.7rem; padding: 0.55rem 0.7rem; border-radius: 0.9rem; background: var(--bg-3); }
+.award-emoji { display: grid; place-items: center; width: 2.4rem; height: 2.4rem; border-radius: 50%; background: var(--gold-soft); font-size: 1.3rem; flex: none; }
+.confetti { position: fixed; inset: 0; z-index: 50; overflow: hidden; pointer-events: none; }
+.confetti span { position: absolute; top: -2rem; font-size: 1.6rem; animation-name: fall; animation-timing-function: cubic-bezier(0.25, 0.4, 0.6, 1); animation-fill-mode: forwards; }
+@keyframes fall { to { transform: translateY(110vh) rotate(var(--spin)); } }

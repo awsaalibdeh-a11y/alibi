@@ -100,6 +100,16 @@ function sfx(kind) {
   } catch { /* no audio */ }
 }
 
+/** A burst of falling confetti for the winners (skipped if the phone asks for less motion). */
+function confetti() {
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const bits = ["🎉", "✨", "🥳", "🕯️", "🎊"];
+  const wrap = h("div", { class: "confetti", "aria-hidden": "true" }, Array.from({ length: 28 }, (_, i) => h("span", {
+    style: { left: `${Math.random() * 100}%`, animationDelay: `${Math.random() * 0.6}s`, animationDuration: `${1.8 + Math.random() * 1.4}s`, "--spin": `${Math.random() * 720 - 360}deg` } }, bits[i % bits.length])));
+  document.body.append(wrap);
+  setTimeout(() => wrap.remove(), 3800);
+}
+
 /* ---------- connection ---------- */
 // this tab's seat first (two tabs are two players); the last seat on this phone lets a closed browser rejoin
 let me = (() => { try { return JSON.parse(sessionStorage.getItem(ME) || localStorage.getItem(ME) || "null"); } catch { return null; } })();
@@ -107,6 +117,7 @@ let S = null;                   // the latest view from the server
 let clockSkew = 0;              // server time minus ours
 let ui = { tab: "chat", room: null, take: null, put: false, strike: null, look: false, revealed: false, draft: null, dm: null, seen: {} };
 let lastPhaseKey = "";
+let freshScreen = true;                 // animate a screen in only when it changes, not on every update
 
 const saveMe = () => {
   try { for (const store of [sessionStorage, localStorage]) { if (me) store.setItem(ME, JSON.stringify(me)); else store.removeItem(ME); } } catch { /* ignore */ }
@@ -129,8 +140,12 @@ function accept(d) {
   const key = `${d.phase}|${d.day}|${d.hour}`;
   if (key !== lastPhaseKey) {                                   // a new phase: reset what was half-picked and make a sound
     lastPhaseKey = key;
+    freshScreen = true;
     ui = { ...ui, room: null, take: null, put: false, strike: null, look: false, draft: null };
     if (d.phase === "roles") ui.revealed = false;
+    const won = d.winner && (d.winner === "killers") === (d.me.role === "killer");
+    if (before && d.phase === "over" && won) confetti();
+    if (before && ["body", "showdown"].includes(d.phase)) { try { navigator.vibrate?.([90, 60, 180]); } catch { /* ignore */ } }
     if (before) sfx({ roles: "role", move: "hour", room: "door", body: "scream", showdown: "scream", vote: "vote",
       over: d.winner && ((d.winner === "killers") === (d.me.role === "killer")) ? "win" : "lose" }[d.phase] || "tick");
     if (!ui.dm) window.scrollTo({ top: 0 });
@@ -196,14 +211,15 @@ function voiceTargets() {
     const here = new Set(S.here.people.map((x) => x.pid));
     return new Set(S.players.filter((p) => here.has(p.pid) && talking(p)).map((p) => p.pid));
   }
-  if (["body", "quiet", "talk", "vote", "result", "showdown", "over", "lobby"].includes(S.phase)) return new Set(S.players.filter((p) => talking(p) && p.alive === S.me.alive).map((p) => p.pid));
+  if (S.phase === "move") return new Set([...voice.peers.keys()].filter((pid) => { const p = who(pid); return p && talking(p) && p.alive === S.me.alive; }));   // keep talking while everyone picks a room
+  if (["body", "quiet", "talk", "vote", "result", "showdown", "over", "lobby", "roles"].includes(S.phase)) return new Set(S.players.filter((p) => talking(p) && p.alive === S.me.alive).map((p) => p.pid));
   return new Set();
 }
 function syncVoice() {
   const want = voiceTargets();
   for (const [pid, pr] of voice.peers) {
-    const stale = pr.pc.connectionState !== "connected" && Date.now() - pr.at > 15000;
-    if (!want.has(pid) || ["failed", "closed"].includes(pr.pc.connectionState) || stale) dropPeer(pid);
+    const age = Date.now() - pr.at, stale = pr.pc.connectionState !== "connected" && age > 15000;
+    if ((!want.has(pid) && age > 5000) || ["failed", "closed"].includes(pr.pc.connectionState) || stale) dropPeer(pid);   // a new call gets a moment: phones update a second apart
   }
   for (const pid of want) if (!voice.peers.has(pid) && S.me.pid < pid) callPeer(pid);       // the lower id calls, the other answers
   const n = [...voice.peers.values()].filter((pr) => pr.pc.connectionState === "connected").length;
@@ -258,6 +274,7 @@ function render() {
   const kept = Object.fromEntries([...document.querySelectorAll("[data-keep]")].map((el) => [el.dataset.keep, el.value]));
   const logs = Object.fromEntries([...document.querySelectorAll("[data-log]")].map((el) => [el.dataset.log, el.scrollHeight - el.scrollTop - el.clientHeight < 80]));
   const el = h("div", {}, screen(), me && S ? dmPanel() : null);
+  if (freshScreen) { el.firstChild?.classList.add("enter"); freshScreen = false; }
   $app.replaceChildren(el);
   for (const [k, v] of Object.entries(kept)) { const x = el.querySelector(`[data-keep="${k}"]`); if (x && v) x.value = v; }
   if (active) { const x = el.querySelector(`[data-keep="${active}"]`); if (x) { x.focus({ preventScroll: true }); try { x.setSelectionRange(x.value.length, x.value.length); } catch { /* ignore */ } } }
@@ -279,7 +296,9 @@ const bar = (title, ...right) => h("div", { class: "bar" },
   S ? h("button", { class: "ibtn" + (voice.on ? " live" : ""), type: "button", "aria-pressed": String(voice.on), "aria-label": voice.on ? "Voice on: tap to leave" : "Join voice", title: voice.on ? "Voice on" : "Voice chat", onClick: toggleVoice },
     voice.on ? "🎙️" : "🔇", h("span", { class: "badge soft", "data-voice-count": "" }, "")) : null,
   h("button", { class: "ibtn", type: "button", "aria-label": sound.on ? "Sound on" : "Sound off", title: sound.on ? "Sound on" : "Sound off",
-    onClick: () => { sound.on = !sound.on; try { localStorage.setItem("alibi.sound", sound.on ? "on" : "off"); } catch { /* ignore */ } render(); } }, sound.on ? "🔊" : "🔈"));
+    onClick: () => { sound.on = !sound.on; try { localStorage.setItem("alibi.sound", sound.on ? "on" : "off"); } catch { /* ignore */ } render(); } }, sound.on ? "🔊" : "🔈"),
+  S && !["lobby", "over"].includes(S.phase) ? h("button", { class: "ibtn", type: "button", "aria-label": "Leave the game", title: "Leave the game",
+    onClick: () => { if (confirm(S.me.alive ? "Leave the game? A bot takes over your seat and the game carries on." : "Leave the game? You can't come back to it.")) leave(); } }, "🚪") : null);
 const who = (pid) => S.players.find((p) => p.pid === pid);
 const roomName = (id) => S.rooms.find((r) => r.id === id)?.name || id;
 const roomOf = (id) => S.rooms.find((r) => r.id === id);
@@ -389,7 +408,7 @@ function roles() {
 /* ---------- each hour, step 1: where do you go? ---------- */
 function dayHeader() {
   return h("div", { class: "dayhead" },
-    h("div", { class: "meta" }, h("span", { class: "tag" }, S.showdown ? "⚔️ Showdown" : `Day ${S.day}`), h("span", { class: "tag hour" }, `🕰️ ${S.hours[S.hour]}`), timer(S.deadline), roleChip()),
+    h("div", { class: "meta" }, h("span", { class: "tag" }, S.showdown ? "⚔️ Showdown" : `Day ${S.day}`), h("span", { class: "tag hour" }, `🕰️ ${S.hours[S.hour]}`, h("span", { class: "hourdots", "aria-hidden": "true" }, S.hours.map((_, i) => h("i", { class: i < S.hour ? "done" : i === S.hour ? "now" : "" })))), timer(S.deadline), roleChip()),
     S.beat ? h("p", { class: "beat" }, "📜 ", S.beat.text) : null,
     S.me.carrying ? h("p", { class: "carry" }, "You're carrying the ", h("b", {}, S.me.carrying), ".") : null);
 }
@@ -466,11 +485,22 @@ function room() {
 }
 
 /* ---------- messages ---------- */
+const REACTIONS = ["👍", "😂", "😱", "🤔", "🔪", "👀"];
+function reactRow(m) {
+  const have = Object.entries(m.reactions || {}).filter(([, pids]) => pids.length);
+  const open = ui.reactFor === m.id;
+  const pick = (e) => { ui.reactFor = null; sfx("tick"); act("react", { id: m.id, emoji: e }); };
+  return h("div", { class: "reacts" },
+    have.map(([e, pids]) => h("button", { class: "react" + (pids.includes(S.me.pid) ? " mine" : ""), type: "button", title: pids.map((q) => who(q)?.name).join(", "), onClick: () => pick(e) }, e, " ", String(pids.length))),
+    h("button", { class: "react add", type: "button", "aria-label": "React", onClick: () => { ui.reactFor = open ? null : m.id; render(); } }, open ? "✕" : "☺︎+"),
+    open ? h("span", { class: "picker" }, REACTIONS.map((e) => h("button", { type: "button", onClick: () => pick(e) }, e))) : null);
+}
 function msgEl(m) {
   return h("div", { class: "cmsg" + (m.pid === S.me.pid ? " mine" : "") + (m.ghost ? " ghostmsg" : "") },
     face({ name: m.name, color: m.color }, "sm"),
     h("div", {}, h("b", { style: { color: m.color } }, m.name, m.bot ? " 🤖" : "", m.ghost ? " 👻" : ""),
-      m.claim ? h("div", { class: "claim" }, m.claim.map((c) => h("span", {}, h("i", {}, c.hour), " ", c.room))) : h("p", {}, m.text)));
+      m.claim ? h("div", { class: "claim" }, m.claim.map((c) => h("span", {}, h("i", {}, c.hour), " ", c.room))) : h("p", {}, m.text),
+      m.id && !m.noReact ? reactRow(m) : null));
 }
 let typedAt = 0;
 /** A text box; `ctx` says where you're typing, so the others see "… is typing" (sent at most every couple of seconds). */
@@ -513,7 +543,7 @@ function dmPanel() {
     const thread = (S.dms || []).filter((m) => (m.from === ui.dm && m.to === S.me.pid) || (m.from === S.me.pid && m.to === ui.dm));
     ui.seen[ui.dm] = Math.max(ui.seen[ui.dm] || 0, ...thread.map((m) => m.t));
     body = [h("div", { class: "row" }, h("button", { class: "btn ghost sm", type: "button", onClick: () => { ui.dm = "list"; render(); } }, "‹ All"), face(p || {}, "sm"), h("h3", { style: { margin: 0 } }, p?.name || "?")),
-      h("div", { class: "chatlog", "data-log": "dm" }, thread.map((m) => msgEl({ ...m, pid: m.from, color: who(m.from)?.color, bot: who(m.from)?.bot, name: who(m.from)?.name || m.name })),
+      h("div", { class: "chatlog", "data-log": "dm" }, thread.map((m) => msgEl({ ...m, noReact: true, pid: m.from, color: who(m.from)?.color, bot: who(m.from)?.bot, name: who(m.from)?.name || m.name })),
         !thread.length ? h("p", { class: "muted small center" }, `Say something only ${p?.name} will see.`) : null),
       (S.typing?.dm || []).includes(ui.dm) ? typingLine([p?.name]) : null,
       p && p.alive === S.me.alive ? composer("dm", `Message ${p.name}…`, (t) => act("dm", { to: ui.dm, text: t }), `dm:${ui.dm}`) : null];
@@ -646,6 +676,9 @@ function over() {
       h("h1", { class: "display" }, killers.map((p) => p.name).join(" & ")),
       h("p", { class: "muted" }, killers.map((p) => p.char?.title).join(" & ")),
       h("p", { class: "lead" }, iWon ? "You won! 🎉" : "You lost this one.")),
+    S.awards?.length ? h("div", { class: "card stack" }, h("span", { class: "label" }, "The weekend's awards"),
+      h("div", { class: "awards" }, S.awards.map((a) => h("div", { class: "award" }, h("span", { class: "award-emoji" }, a.emoji),
+        h("span", {}, h("b", {}, a.title), h("br"), h("span", {}, a.name), h("small", { class: "muted" }, ` · ${a.detail}`)))))) : null,
     h("div", { class: "card" }, h("span", { class: "label" }, "Everyone"), h("div", { class: "plist" }, S.players.map((p) => h("div", { class: "prow" }, face(p), h("span", {}, h("b", {}, p.name), h("br"), h("small", { class: "muted" }, p.char?.title || "")),
       h("span", { class: "spacer" }), h("span", { class: p.role === "killer" ? "no" : "muted" }, p.role === "killer" ? "🔪 killer" : p.alive ? "survived" : p.ejected ? "voted out" : "killed"))))),
     (S.truth || []).map((d) => h("div", { class: "card stack" }, h("span", { class: "label" }, d.showdown ? "The final showdown" : `Day ${d.n}: what really happened`),
