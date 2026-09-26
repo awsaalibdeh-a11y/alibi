@@ -263,6 +263,23 @@ class Api(unittest.TestCase):
             self.c.post(f"/api/game/{g['code']}", json={"pid": me["pid"], "token": me["token"], "type": "chat", "text": f"{bot['name']}, where were you?"})
         self.assertTrue(any(m["pid"] == bot["pid"] for m in d["chat"][before:]), "the bot you named answers straight away")
 
+    def test_bots_in_your_room_keep_the_conversation_going(self):
+        me = self.c.post("/api/play", json={"mode": "bots", "name": "Ann"}).get_json()
+        g = game.GAMES[me["code"]]
+        url, auth = f"/api/game/{me['code']}", {"pid": me["pid"], "token": me["token"]}
+        g["deadline"] = 0
+        self.c.get(url, query_string=auth)
+        d = game.today(g)
+        d["beats"][0].update(fx=None)
+        bots = [p for p in g["players"] if p["bot"]]
+        d["moves"] = {p["pid"]: "library" for p in g["players"]}
+        game.resolve_move(g)
+        with self.sync():
+            for text in ("Hello?", "Where were you at nine?", "And the candlestick?"):
+                self.c.post(url, json={**auth, "type": "room", "text": text})
+        said = [m for m in d["roomchat"][f"0:library"] if m["pid"] != me["pid"]]
+        self.assertGreaterEqual(len(said), 3, "every message gets an answer, not just the first")
+
     def test_leaving_mid_game_hands_your_seat_to_a_bot(self):
         me = self.c.post("/api/play", json={"mode": "bots", "name": "Ann"}).get_json()
         g = game.GAMES[me["code"]]

@@ -217,7 +217,7 @@ def new_day(g, showdown=False):
         beats.append(b)
     g["days"].append({"n": g["day"], "hours": [], "beats": beats, "moves": {}, "acts": {}, "cur": None, "kill": None, "found": None,
                       "chat": [], "roomchat": {}, "votes": {}, "ready": set(), "claims": {}, "ejected": None, "bot_plan": [], "missing": [],
-                      "bot_room_said": set(), "showdown": showdown, "kills": []})
+                      "showdown": showdown, "kills": []})
     set_phase(g, "move", T["move"])
 
 
@@ -1151,12 +1151,15 @@ def act(code):
                 return _err("Say something.")
             key = room_say(g, p, text)
             room = d["cur"]["where"][p["pid"]]
-            for q in occupants(g, room):
-                bot = player(g, q)
-                if bot["bot"] and (key, q) not in d["bot_room_said"] and random.random() < 0.9:
-                    d["bot_room_said"].add((key, q))
-                    typing(g, q, ("room", key))
-                    _spawn(bot_room_reply, g, q, key)
+            bots = [q for q in occupants(g, room) if player(g, q)["bot"]]
+            named = [q for q in bots if re.search(rf"\b{re.escape(name_of(g, q).lower())}\b", text.lower())]
+            busy = {q for q, x in g.get("typing", {}).items() if x["ctx"] == ("room", key) and now() - x["t"] < 12}
+            free = [q for q in bots if q not in busy]
+            # every message gets an answer: whoever you named, else one of the bots here (sometimes two chime in)
+            answer = [q for q in named if q in free] or random.sample(free, min(len(free), 2 if len(free) > 1 and random.random() < 0.3 else 1))
+            for q in answer:
+                typing(g, q, ("room", key))
+                _spawn(bot_room_reply, g, q, key)
         elif kind == "chat" and d and g["phase"] in ("talk", "vote", "result", "body", "quiet", "over", "move", "room"):
             text = _s(body.get("text"), 200)
             if not text:
