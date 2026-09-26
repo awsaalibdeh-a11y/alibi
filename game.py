@@ -193,7 +193,7 @@ def start(g):
         p = random.choices(pool, weights=[1.0 if q["bot"] else HUMAN_KILLER_WEIGHT for q in pool])[0]
         pool.remove(p)
         p["role"] = "killer"
-    g.update(day=0, days=[], winner=None, dms=[], signals={})
+    g.update(day=0, days=[], winner=None, dms=[], signals={}, meets={})
     set_phase(g, "roles", T["roles"])
 
 
@@ -231,6 +231,12 @@ def bot_move(g, p):
     d = today(g)
     last = d["hours"][-1]["where"].get(p["pid"]) if d["hours"] else None
     rooms = [r for r in room_ids(g) if not (beat(g)["fx"] == "rain" and r == beat(g)["room"])]
+    meet = (g.get("meets") or {}).get(p["pid"])
+    if meet and (meet["day"], meet["hour"]) < (g["day"], g["hour"]):
+        g["meets"].pop(p["pid"])                                       # missed it: forget it
+    elif meet and (meet["day"], meet["hour"]) == (g["day"], g["hour"]) and meet["room"] in rooms:
+        g["meets"].pop(p["pid"])
+        return meet["room"]                                            # a promise is a promise
     if p["role"] == "killer" and not g["carry"].get(p["pid"]):
         options = [r for r in rooms if any(g["items"].get(i) == r for i in ROOM[r]["items"])]
         return random.choice(options or rooms)
@@ -338,16 +344,28 @@ def resolve_room(g):
             target = a.get("strike")
             if killer["role"] != "killer" or not target or not carried_at_start.get(pid):
                 continue
-            others = [q for q in occupants(g, where[pid]) if q != pid and player(g, q)["role"] != "killer"]
-            if others == [target] or (target == "dark" and len(others) == 1):
-                victim = player(g, others[0])
-                weapon = carried_at_start[pid]
-                victim["alive"] = False
-                victim["killed"] = {"day": g["day"], "hour": h, "room": where[pid], "by": pid, "weapon": weapon}
-                d["kill"] = {"victim": victim["pid"], "killer": pid, "room": where[pid], "hour": h, "weapon": weapon}
-                d["kills"].append(d["kill"])
-                if not d["showdown"]:
-                    break
+            room = where[pid]
+            dark = is_dark(beat(g), room)
+            others = [q for q in occupants(g, room) if q != pid and player(g, q)["role"] != "killer" and player(g, q)["alive"]]
+            # walk up to them and strike, alone or not; in the dark you can only find someone if they're the only one there
+            victim = others[0] if dark and target == "dark" and len(others) == 1 else target if not dark and target in others else None
+            if not victim:
+                continue
+            victim = player(g, victim)
+            weapon = carried_at_start[pid]
+            victim["alive"] = False
+            victim["killed"] = {"day": g["day"], "hour": h, "room": room, "by": pid, "weapon": weapon}
+            around = [q for q in occupants(g, room) if q not in (pid, victim["pid"]) and player(g, q)["alive"]]
+            d["kill"] = {"victim": victim["pid"], "killer": pid, "room": room, "hour": h, "weapon": weapon,
+                         "witnesses": [] if dark else around, "heard": around if dark else []}
+            d["kills"].append(d["kill"])
+            if not d["showdown"]:
+                break
+    k = d["kill"]
+    if k and k["hour"] == h and (k["witnesses"] or k["heard"]) and not d["found"] and not d["showdown"]:
+        d["found"] = {"hour": h, "by": k["witnesses"] + k["heard"]}    # it happened right in front of them
+        record_hour(g, acts, events, looks)
+        return body_found(g)
     if d["showdown"]:                                                  # the last day: no meeting, just survive it
         record_hour(g, acts, events, looks)
         guests = [q for q in living(g) if q["role"] != "killer"]
@@ -393,8 +411,9 @@ def begin_talk(g):
     t0 = now()
     bots = [p for p in living(g) if p["bot"]]
     finders = [p for p in bots if d["found"] and p["pid"] in d["found"]["by"]]
-    if bots:                                                           # somebody always breaks the silence: whoever found the body, if a bot did
-        d["bot_plan"].append({"at": t0 + random.uniform(0.5, 1.5), "pid": (finders or [random.choice(bots)])[0]["pid"], "kind": "open"})
+    eyes = [p for p in finders if d["kill"] and p["pid"] in d["kill"].get("witnesses", []) and p["role"] != "killer"]
+    if bots:                                                           # somebody always breaks the silence: whoever saw it or found the body, if a bot did
+        d["bot_plan"].append({"at": t0 + random.uniform(0.5, 1.5), "pid": (eyes or finders or [random.choice(bots)])[0]["pid"], "kind": "open"})
     for p in bots:                                                     # then everyone posts their day, and chips in through the meeting
         d["bot_plan"].append({"at": t0 + random.uniform(2, 6), "pid": p["pid"], "kind": "claim"})
         for _ in range(random.choice([1, 2])):
@@ -471,6 +490,23 @@ def suspicion(g, me):
         k = d["kill"]
         if k and claim.get(str(k["hour"])) == k["room"]:
             score[q] += 1
+    for kk in d.get("kills") or ([d["kill"]] if d["kill"] else []):
+        if me["pid"] in kk.get("witnesses", []) and kk["killer"] in score:
+            score[kk["killer"]] += 20                                  # saw them do it: nothing else matters
+        nxt = d["hours"][kk["hour"] + 1] if kk["hour"] + 1 < len(d["hours"]) else None
+        if nxt and nxt["acts"].get(me["pid"], {}).get("act") == "look" and nxt["where"].get(me["pid"]) == kk["room"]:
+            for q, r in d["hours"][kk["hour"]]["where"].items():       # looked around the murder room: who'd been in it
+                if r == kk["room"] and q in score:
+                    score[q] += 3
+    told = {q: 0 for q in score}
+    for m in g["dms"][-40:]:                                           # what people whispered to me
+        if m["to"] != me["pid"] or m["from"] == me["pid"] or not player(g, m["from"])["alive"]:
+            continue
+        for q in score:
+            if q != m["from"] and re.search(rf"\b{re.escape(name_of(g, q).lower())}\b", m["text"].lower()):
+                told[q] += 1
+    for q, n in told.items():
+        score[q] += min(2.5, 1.25 * n)
     mentions = {q: 0 for q in score}
     for msg in d["chat"][-30:]:
         if msg.get("ghost") or msg["pid"] == me["pid"]:
@@ -522,12 +558,16 @@ def my_day(g, p, d):
         if p["pid"] in hr["looks"]:
             ev.append(f"You looked around: {hr['looks'][p['pid']]}")
         k = d["kill"]
-        if k and k["hour"] == i:
-            if k["killer"] == p["pid"]:
-                ev.append(f"You killed {name_of(g, k['victim'])} here with the {k['weapon']}.")
-            if k["victim"] == p["pid"]:
-                ev.append(f"{name_of(g, k['killer'])} killed you here with the {k['weapon']}.")
-        if d["found"] and d["found"]["hour"] == i and p["pid"] in d["found"]["by"]:
+        for kk in [x for x in d.get("kills") or ([k] if k else []) if x["hour"] == i]:
+            if kk["killer"] == p["pid"]:
+                ev.append(f"You killed {name_of(g, kk['victim'])} here with the {kk['weapon']}" + (" — in front of " + ", ".join(name_of(g, q) for q in kk.get("witnesses", [])) if kk.get("witnesses") else "") + ".")
+            if kk["victim"] == p["pid"]:
+                ev.append(f"{name_of(g, kk['killer'])} killed you here with the {kk['weapon']}.")
+            if p["pid"] in kk.get("witnesses", []):
+                ev.append(f"You SAW {name_of(g, kk['killer'])} kill {name_of(g, kk['victim'])} with the {kk['weapon']}, right in front of you!")
+            if p["pid"] in kk.get("heard", []):
+                ev.append(f"A scream in the dark: {name_of(g, kk['victim'])} was killed right beside you, but you couldn't see by whom.")
+        if d["found"] and d["found"]["hour"] == i and p["pid"] in d["found"]["by"] and not (k and p["pid"] in k.get("witnesses", []) + k.get("heard", [])):
             ev.append(f"You found {name_of(g, k['victim'])}'s body!")
         out.append({"hour": HOURS[i], "i": i, "room": room, "act": a.get("act", ""), "saw": saw, "events": ev, "items": items, "dark": dark,
                     "idle": bool(a.get("idle")) or p["pid"] in hr.get("idle", [])})
@@ -754,6 +794,45 @@ def claim_text(claim):
     return " · ".join(f"{HOURS[int(i)]} {ROOM[r]['name']}" for i, r in sorted(claim.items(), key=lambda kv: int(kv[0])))
 
 
+def rooms_heard(g, p, d):
+    """Everything said today in rooms this player was in."""
+    out = []
+    for key, lst in d["roomchat"].items():
+        h, room = key.split(":", 1)
+        h = int(h)
+        was = d["hours"][h]["where"].get(p["pid"]) if h < len(d["hours"]) else (d["cur"] or {}).get("where", {}).get(p["pid"])
+        if was == room:
+            out += [f"  [{HOURS[h]}, {ROOM[room]['name']}] {m['name']}: {m['text']}" for m in lst]
+    return "\n".join(out[-20:])
+
+
+MEET_HOURS = {"9": 0, "11": 1, "1": 2, "3": 3, "5": 4}
+
+
+def meetup(g, text):
+    """'Library at 3' → the Library at 3 PM. The room must be one of this house's; the hour is optional (next hour)."""
+    low = text.lower()
+    if not re.search(r"\b(meet|come|go|join|see you|let'?s|lets|wait|head|be (in|at)|find me|catch you)\b", low):
+        return None                                                    # "I was in the library at 9" is a story, not a plan
+    room = next((r for r in room_ids(g) if re.search(rf"\b{r}\b", low)), None)
+    if not room:
+        return None
+    m = re.search(r"\b(9|11|1|3|5)\s*(?::00)?\s*(am|pm|o'?clock)?\b", low)
+    d = today(g)
+    nxt = g["hour"] if g["phase"] == "move" else g["hour"] + 1
+    hour = MEET_HOURS[m.group(1)] if m else nxt
+    day = g["day"] if d and hour >= nxt else g["day"] + 1               # an hour already gone today means tomorrow
+    return {"room": room, "hour": hour, "day": day}
+
+
+def remember_meet(g, bot, who_, text):
+    """Someone asked a bot to meet them somewhere: the bot really goes."""
+    plan = meetup(g, text)
+    if plan:
+        g.setdefault("meets", {})[bot["pid"]] = dict(plan, **{"with": who_["pid"]})
+    return plan
+
+
 def bot_brief(g, p):
     """Everything a bot knows, for its AI prompt."""
     d = today(g)
@@ -768,8 +847,19 @@ def bot_brief(g, p):
             + ". Never admit it; calmly steer suspicion elsewhere.") if p["role"] == "killer" else "You are an innocent guest trying to find the killer."
     lie = f"The day you told everyone (stick to it): {claim_text(d['claims'][p['pid']])}." if d and p["role"] == "killer" and p["pid"] in d["claims"] else ""
     guests = ", ".join(f"{q['name']} ({q['char']['title']}{'' if q['alive'] else ', dead'})" for q in g["players"] if q["pid"] != p["pid"])
+    whispers = "\n".join(f"  {name_of(g, m['from'])} → {name_of(g, m['to'])}: {m['text']}" for m in [m for m in g["dms"] if p["pid"] in (m["from"], m["to"])][-10:])
+    heard = rooms_heard(g, p, d) if d else ""
+    meet = (g.get("meets") or {}).get(p["pid"])
+    s = suspicion(g, p) if d and p["alive"] else {}
+    gut = ", ".join(f"{name_of(g, q)} ({v:.0f})" for q, v in sorted(s.items(), key=lambda kv: -kv[1])[:3] if v >= 1)
+    saw_kill = bool(d) and any(p["pid"] in x.get("witnesses", []) for x in d.get("kills") or [])
     return (f"You are {p['name']}, {p['char']['title']} ({p['char']['blurb']}). {role} {lie}\nThe other guests (the only people here; never invent others): {guests}\n"
-            f"Public facts: {public or 'none yet'}\nWhat you personally saw today: {seen or 'nothing yet'}")
+            f"Public facts: {public or 'none yet'}\nWhat you personally saw today: {seen or 'nothing yet'}\n"
+            + ("You SAW the murder happen: that is the most important thing you know. Say so plainly and name the killer.\n" if saw_kill and p["role"] != "killer" else "")
+            + (f"Private messages you've had (only you and them know; use them, and bring up what's useful at the meeting):\n{whispers}\n" if whispers else "")
+            + (f"What you heard said in rooms today:\n{heard[-1500:]}\n" if heard else "")
+            + (f"You promised to meet {name_of(g, meet['with'])} in the {ROOM[meet['room']]['name']} at {HOURS[meet['hour']]}, and you will really go.\n" if meet else "")
+            + (f"Your gut feeling, most suspicious first: {gut}." if gut and p["role"] != "killer" else ""))
 
 
 STYLE = "Reply as JSON {\"say\": \"...\"}: 1-2 short casual sentences (max 200 characters), like a real person texting in a party game. No hashtags."
@@ -820,7 +910,13 @@ def bot_speak(g, pid, kind):
             return say(g, p, f"My day: {claim_text(claim)}", claim=claim)
         chat = "\n".join(f"{m['name']}: {m['text']}" for m in d["chat"][-14:] if not m.get("ghost")) or "(nobody has said anything yet)"
         k = d["kill"]
-        if kind == "open":
+        seen = next((x for x in d.get("kills") or [] if pid in x.get("witnesses", [])), None) if p["role"] != "killer" else None
+        if seen:                                                       # saw it with my own eyes: that's what I say, and I say it first
+            prompt = (f"{bot_brief(g, p)}\nThe meeting chat so far:\n{chat}\nYou watched {name_of(g, seen['killer'])} kill {name_of(g, seen['victim'])}. "
+                      f"Tell everyone, name them, insist. {STYLE}")
+            fallback = random.choice([f"I SAW {name_of(g, seen['killer'])} kill {name_of(g, seen['victim'])}! Right in front of me, with the {seen['weapon']}.",
+                                      f"It was {name_of(g, seen['killer'])}. I was there. Vote {name_of(g, seen['killer'])} out, now."])
+        elif kind == "open":
             found = k and d["found"] and pid in d["found"]["by"]
             prompt = (f"{bot_brief(g, p)}\nThe meeting is starting and nobody has spoken yet. Open it: "
                       + ("you found the body, so say what you saw and ask where everyone was." if found else "say what's on your mind about the day and get people talking.") + f" {STYLE}")
@@ -862,6 +958,9 @@ def answer_in_chat(g, d, p, text):
     bots = [q for q in g["players"] if q["bot"] and q["alive"] != ghost]
     named = [q for q in bots if re.search(rf"\b{re.escape(q['name'].lower())}\b", text.lower())]
     last = d.setdefault("bot_last", {})
+    if not ghost:
+        for q in named:
+            remember_meet(g, q, p, text)
     for q in named[:2] or ([random.choice(bots)] if bots and random.random() < (0.9 if ghost else 0.7) else []):
         if now() - last.get(q["pid"], 0) < 6:
             continue
@@ -888,7 +987,11 @@ def bot_room_reply(g, pid, key):
         typing_done(g, pid)
 
 
-def bot_dm_reply(g, pid, to):
+def agreed(g, plan):
+    return f"Deal: the {ROOM[plan['room']]['name']} at {HOURS[plan['hour']]}{' tomorrow' if plan['day'] > g['day'] else ''}. I'll be there."
+
+
+def bot_dm_reply(g, pid, to, plan=None):
     """A bot answers a private message; a dead bot answers a fellow ghost, in character and knowing what ghosts know."""
     with LOCK:
         p, other = player(g, pid), player(g, to)
@@ -897,9 +1000,10 @@ def bot_dm_reply(g, pid, to):
         thread = [m for m in g["dms"] if {m["from"], m["to"]} == {pid, to}][-10:]
         log_ = "\n".join(f"{name_of(g, m['from'])}: {m['text']}" for m in thread)
         brief = bot_brief(g, p) if p["alive"] else ghost_brief(g, p)
-        prompt = f"{brief}\nA private message thread with {name_of(g, to)} (only the two of you can see it):\n{log_}\nReply privately. {STYLE}"
+        deal = f"They just asked you to meet: you've agreed to be in the {ROOM[plan['room']]['name']} at {HOURS[plan['hour']]}, and you really will go. Confirm it. " if plan else ""
+        prompt = f"{brief}\nA private message thread with {name_of(g, to)} (only the two of you can see it):\n{log_}\n{deal}Reply privately. {STYLE}"
         lines = ["Can't talk now.", "Why are you asking me?", "Keep this between us, all right?"] if p["alive"] else GHOST_LINES
-    text = _bot_reply(prompt, random.choice(lines))
+    text = _bot_reply(prompt, agreed(g, plan) if plan else random.choice(lines))
     with LOCK:
         dm(g, p, to, text)
 
@@ -1157,6 +1261,8 @@ def act(code):
             free = [q for q in bots if q not in busy]
             # every message gets an answer: whoever you named, else one of the bots here (sometimes two chime in)
             answer = [q for q in named if q in free] or random.sample(free, min(len(free), 2 if len(free) > 1 and random.random() < 0.3 else 1))
+            for q in named or (bots if len(bots) == 1 else []):
+                remember_meet(g, player(g, q), p, text)
             for q in answer:
                 typing(g, q, ("room", key))
                 _spawn(bot_room_reply, g, q, key)
@@ -1187,8 +1293,9 @@ def act(code):
                 return _err("The living and the dead can't message each other.")
             dm(g, p, to["pid"], text)
             if to["bot"]:                                              # the dead answer the dead, too
+                plan = remember_meet(g, to, p, text) if to["alive"] else None
                 typing(g, to["pid"], ("dm", p["pid"]))
-                _spawn(bot_dm_reply, g, to["pid"], p["pid"])
+                _spawn(bot_dm_reply, g, to["pid"], p["pid"], plan)
         elif kind == "claim" and g["phase"] == "talk" and p["alive"]:
             raw = body.get("claim") or {}
             claim = {str(i): r for i, r in raw.items() if str(i).isdigit() and int(i) < len(d["hours"]) and r in ROOM}

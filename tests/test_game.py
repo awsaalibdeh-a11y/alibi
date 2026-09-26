@@ -83,9 +83,8 @@ class Rules(unittest.TestCase):
         hour([(k, "kitchen"), (a, "kitchen"), (b, "garden"), (c, "study")], [(k, {"take": "kitchen knife", "strike": a["pid"]}), (a, {}), (b, {}), (c, {})])
         self.assertIsNone(d["kill"], "no weapon yet when the hour began")
         self.assertEqual(g["carry"][k["pid"]], "kitchen knife")
-        hour([(k, "garden"), (a, "garden"), (b, "garden"), (c, "study")], [(k, {"strike": a["pid"]}), (a, {}), (b, {"act": "look"}), (c, {})])
-        self.assertIsNone(d["kill"], "a witness")
-        self.assertIn("Ann", d["hours"][-1]["looks"][b["pid"]] + " Ann")
+        hour([(k, "garden"), (a, "garden"), (b, "library"), (c, "study")], [(k, {}), (a, {}), (b, {"act": "look"}), (c, {})])
+        self.assertIsNone(d["kill"], "had the chance, didn't take it")
         hour([(k, "study"), (c, "study"), (a, "garden"), (b, "library")], [(k, {"strike": c["pid"]}), (c, {}), (a, {}), (b, {})])
         self.assertEqual(d["kill"]["victim"], c["pid"])
         self.assertFalse(c["alive"])
@@ -93,6 +92,51 @@ class Rules(unittest.TestCase):
         self.assertEqual(g["phase"], "body")
         self.assertEqual(d["found"]["by"], [a["pid"]])
         self.assertIn("kitchen knife", d["missing"])
+
+    def test_a_kill_in_front_of_someone_is_seen_and_they_say_so(self):
+        g = game.new_game()
+        a, b, c, k = (game.add_player(g, n) for n in ("Ann", "Ben", "Cat", "Kay"))
+        game.start(g)
+        for p in g["players"]:
+            p["role"] = "guest"
+        k["role"] = "killer"
+        b["bot"] = True
+        game.new_day(g)
+        d = game.today(g)
+        for beat in d["beats"]:
+            beat.update(fx=None)
+        g["carry"][k["pid"]] = "rope"
+        d["moves"] = {k["pid"]: "garden", a["pid"]: "garden", b["pid"]: "garden", c["pid"]: "library"}
+        game.resolve_move(g)
+        d["acts"] = {k["pid"]: {"strike": a["pid"]}}
+        game.resolve_room(g)
+        self.assertFalse(a["alive"])
+        self.assertEqual(d["kill"]["witnesses"], [b["pid"]])
+        self.assertEqual(g["phase"], "body", "found on the spot")
+        self.assertIn("You SAW Kay kill Ann", " ".join(game.my_day(g, b, d)[-1]["events"]))
+        self.assertGreaterEqual(game.suspicion(g, b)[k["pid"]], 20)
+        self.assertEqual(game.bot_vote(g, b), k["pid"])
+        game.begin_talk(g)
+        with mock.patch.object(game.threading, "Thread", side_effect=lambda target, args, daemon: mock.Mock(start=lambda: target(*args))):
+            game.bot_speak(g, b["pid"], "open")
+        self.assertIn("Kay", d["chat"][-1]["text"], "the witness names the killer")
+
+    def test_whispers_count_and_meetups_are_kept(self):
+        g = game.new_game()
+        me = game.add_player(g, "Ann")
+        bots = [game.add_bot(g) for _ in range(3)]
+        game.start(g)
+        game.new_day(g)
+        rosa, other = bots[0], bots[1]
+        base = game.suspicion(g, rosa)[other["pid"]]
+        game.dm(g, me, rosa["pid"], f"I really think {other['name']} is hiding something")
+        self.assertGreater(game.suspicion(g, rosa)[other["pid"]], base, "a bot takes a whisper into account")
+        self.assertIsNone(game.meetup(g, "I was in the kitchen at 9"), "a story, not a plan")
+        plan = game.remember_meet(g, rosa, me, "meet me in the kitchen at 3")
+        self.assertEqual((plan["room"], plan["hour"], plan["day"]), ("kitchen", 3, 1))
+        g["hour"] = 3
+        self.assertEqual(game.bot_move(g, rosa), "kitchen", "she keeps her promise")
+        self.assertNotIn(rosa["pid"], g["meets"])
 
     def test_a_dark_room_hides_who_is_there(self):
         g = game.new_game()

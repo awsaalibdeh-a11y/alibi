@@ -492,7 +492,7 @@ function room() {
   const opt = (on, label, fn, cls = "") => h("button", { class: `optbtn ${cls}${on ? " on" : ""}`, type: "button", "aria-pressed": String(on), onClick: fn }, label);
   const home = S.me.carrying && S.rooms.find((x) => x.items.includes(S.me.carrying))?.id === here.room;
   const victims = here.people.filter((p) => who(p.pid)?.role !== "killer");
-  const canStrike = killer && S.me.carrying && (here.dark ? here.count === 1 : victims.length === 1 && here.people.length === 1);
+  const canStrike = killer && S.me.carrying && (here.dark ? here.count === 1 : victims.length > 0);
   const looking = a.act === "look";
   const doPanel = h("div", { class: "card stack" }, h("span", { class: "label" }, "What do you do?"),
     h("div", { class: "opts2" },
@@ -502,9 +502,10 @@ function room() {
       !here.items.length ? h("p", { class: "muted small" }, "Nothing here worth taking: someone got there first.") : null) : null,
     a.take ? opt(!!a.sneak, "🤫 Sneak it: only someone looking around will notice", () => choose({ sneak: !a.sneak }), "sneak") : null,
     home ? opt(!!a.put, `↩️ Put back the ${S.me.carrying}`, () => choose({ put: !a.put })) : null,
-    killer ? (canStrike ? opt(!!a.strike, here.dark ? `🔪 Strike whoever is in the dark (with the ${S.me.carrying})` : `🔪 Strike ${victims[0].name} (with the ${S.me.carrying})`,
-      () => choose({ strike: a.strike ? null : (here.dark ? "dark" : victims[0].pid) }), "strike")
-      : h("p", { class: "muted small" }, S.me.carrying ? "🔪 You can only strike when you're alone with one person." : "🔪 Take a weapon: you can strike from the next hour.")) : null,
+    killer ? (canStrike ? (here.dark ? [opt(a.strike === "dark", `🔪 Strike whoever is in the dark (with the ${S.me.carrying})`, () => choose({ strike: a.strike ? null : "dark" }), "strike")]
+      : victims.map((v) => opt(a.strike === v.pid, `🔪 Walk up to ${v.name} and strike (with the ${S.me.carrying})${here.people.length > 1 ? ` · ${here.people.length - 1} will see it` : ""}`,
+        () => choose({ strike: a.strike === v.pid ? null : v.pid }), "strike")))
+      : h("p", { class: "muted small" }, S.me.carrying ? (here.dark ? "🔪 Too dark: you can only find someone if they're alone in here with you." : "🔪 Nobody here to strike.") : "🔪 Take a weapon: you can strike from the next hour.")) : null,
     S.leaving ? h("p", { class: "center muted small" }, "✓ Ready to move on. Waiting for the others, or the clock.")
       : h("button", { class: "btn primary block", type: "button", onClick: async () => { if (!S.acted) await choose({}); act("leave_room"); } }, "Leave the room ▸"),
     h("p", { class: "muted small center" }, "Your choice is saved as you tap it. Stay up to a minute to talk."));
