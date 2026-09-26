@@ -565,16 +565,16 @@ def bot_votes_later(g):
 
 # ---------- bots in the chat ----------
 def claim_for(g, p):
-    """What a player says they did: the truth, unless they're the killer, who moves themselves away from the crime."""
+    """What a player says they did: the truth, except a killer covers only the hours that would actually give them away."""
     d = today(g)
     claim = {str(i): hr["where"][p["pid"]] for i, hr in enumerate(d["hours"]) if p["pid"] in hr["where"]}
     k = d["kill"]
-    if p["role"] == "killer":
-        if k and k["killer"] == p["pid"]:
-            claim[str(k["hour"])] = random.choice([r["id"] for r in ROOMS if r["id"] != k["room"]])
-        for i, hr in enumerate(d["hours"]):                            # and never admits carrying the weapon's room
-            if random.random() < 0.15:
-                claim[str(i)] = random.choice(ROOMS)["id"]
+    if p["role"] == "killer" and k and k["killer"] == p["pid"]:
+        for i, hr in enumerate(d["hours"]):
+            here = hr["where"].get(p["pid"])
+            took_weapon = hr["choices"].get(p["pid"], {}).get("take") == k["weapon"]
+            if i == k["hour"] or took_weapon:                          # the murder itself, and picking up the weapon
+                claim[str(i)] = random.choice([r["id"] for r in ROOMS if r["id"] != here])
     return claim
 
 
@@ -616,7 +616,7 @@ def bot_speak(g, pid, kind):
         prompt = BOT_PROMPT.format(name=p["name"], role_line=role_line, public=public, seen=seen or "nothing", lie_line=lie_line, chat=chat)
     text = ""
     try:
-        text = _s(_ask_json("You play a guest in a social-deduction party game. Output only JSON.", prompt, 300).get("say"), 200)
+        text = _s(_ask_json("You play a guest in a social-deduction party game. Output only JSON.", prompt, 150).get("say"), 200)
     except Exception as exc:                                           # AI off or slow: a plain line still keeps the bot in the game
         log.info("bot chat fallback: %s", exc)
     with LOCK:
@@ -665,7 +665,7 @@ def _ask_json(system, user, max_tokens):
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}
     if re.match(r"^(gpt-5|o\d)", MODEL):
         body["reasoning_effort"] = EFFORT
-    resp = requests.post("https://api.openai.com/v1/chat/completions", headers={"Authorization": f"Bearer {key}"}, json=body, timeout=(5, 20))
+    resp = requests.post("https://api.openai.com/v1/chat/completions", headers={"Authorization": f"Bearer {key}"}, json=body, timeout=(4, 8))
     resp.raise_for_status()
     return json.loads(resp.json()["choices"][0]["message"]["content"] or "{}")
 

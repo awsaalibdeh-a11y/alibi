@@ -102,6 +102,28 @@ class Rules(unittest.TestCase):
         self.assertEqual(d["found"]["by"], [a["pid"]])
         self.assertIn("kitchen knife", d["missing"])
 
+    def test_a_killers_claim_only_lies_about_the_kill_and_the_weapon(self):
+        g = game.new_game()
+        a, b, c, k = (game.add_player(g, n) for n in ("Ann", "Ben", "Cat", "Kay"))
+        game.start(g)
+        for p in g["players"]:
+            p["role"] = "guest"
+        k["role"] = "killer"
+        game.new_day(g)
+        d = game.today(g)
+        def hour(choices):
+            d["choices"] = {p["pid"]: {"room": r, "act": "", "take": t, "put": None, "strike": s, "target": tg} for p, r, t, s, tg in choices}
+            game.resolve_hour(g)
+        hour([(k, "library", None, False, None), (a, "garden", None, False, None), (b, "kitchen", None, False, None), (c, "cellar", None, False, None)])
+        hour([(k, "kitchen", "kitchen knife", False, None), (a, "garden", None, False, None), (b, "library", None, False, None), (c, "cellar", None, False, None)])
+        hour([(k, "cellar", None, True, c["pid"]), (c, "cellar", None, False, None), (a, "garden", None, False, None), (b, "library", None, False, None)])
+        self.assertFalse(c["alive"])
+        claim = game.claim_for(g, k)
+        truth = {str(i): hr["where"][k["pid"]] for i, hr in enumerate(d["hours"])}
+        self.assertEqual(claim["0"], truth["0"], "no reason to lie about an hour with nothing to hide")
+        self.assertNotEqual(claim["1"], truth["1"], "hides picking up the murder weapon")
+        self.assertNotEqual(claim["2"], truth["2"], "hides the kill itself")
+
     def test_a_crowded_kill_is_found_on_the_spot(self):
         g = game.new_game()
         a, b, c, k = (game.add_player(g, n) for n in ("Ann", "Ben", "Cat", "Kay"))
