@@ -252,3 +252,30 @@ table.truth { border-collapse: collapse; font-size: 0.8rem; min-width: 100%; }
 .confetti { position: fixed; inset: 0; z-index: 50; overflow: hidden; pointer-events: none; }
 .confetti span { position: absolute; top: -2rem; font-size: 1.6rem; animation-name: fall; animation-timing-function: cubic-bezier(0.25, 0.4, 0.6, 1); animation-fill-mode: forwards; }
 @keyframes fall { to { transform: translateY(110vh) rotate(var(--spin)); } }
+
+/* ---------- doors: shut over the screen, then swing open onto the next one ---------- */
+.doors { position: fixed; inset: 0; z-index: 60; perspective: 1600px; pointer-events: none; }
+.doors::before { content: ""; position: absolute; inset: 0; background: rgba(20, 12, 6, 0.35); opacity: 0; transition: opacity 0.4s; }
+.doors.shut::before { opacity: 1; }
+.doors.open::before { opacity: 0; transition-duration: 0.7s; }
+.door { position: absolute; top: 0; bottom: 0; width: 50.5%; display: grid; grid-template-rows: 1fr 1.5fr; gap: 6%; padding: 9% 12%;
+  background: repeating-linear-gradient(90deg, #7a4a26 0 22px, #6e4221 22px 24px, #804f29 24px 46px), #74461f;
+  box-shadow: inset 0 0 0 6px #4d2c13, inset 0 0 40px rgba(0, 0, 0, 0.45), 0 0 30px rgba(0, 0, 0, 0.5);
+  opacity: 0; transition: transform 0.55s cubic-bezier(0.55, 0, 0.35, 1), opacity 0.2s; backface-visibility: hidden; }
+.door.left { left: 0; transform-origin: left center; transform: rotateY(-95deg); }
+.door.right { right: 0; transform-origin: right center; transform: rotateY(95deg); }
+.door .panel { border-radius: 4px; box-shadow: inset 0 0 0 3px rgba(40, 20, 6, 0.55), inset 3px 3px 0 5px rgba(255, 220, 170, 0.08), inset 0 0 22px rgba(0, 0, 0, 0.35); }
+.door .knob { position: absolute; top: 52%; width: 14px; height: 14px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #fff1b8, #c9962e 55%, #7a5410); box-shadow: 0 2px 4px rgba(0, 0, 0, 0.5); }
+.door.left .knob { right: 14px; }
+.door.right .knob { left: 14px; }
+.doors.shut .door { transform: rotateY(0); opacity: 1; }
+.doors.shut.open .door { transition: transform 0.85s cubic-bezier(0.3, 0, 0.2, 1), opacity 0.3s 0.6s; opacity: 0; }
+.doors.shut.open .door.left { transform: rotateY(-110deg); }
+.doors.shut.open .door.right { transform: rotateY(110deg); }
+.plaque { position: absolute; left: 50%; top: 38%; display: grid; gap: 0.25rem; min-width: 14rem; max-width: 86vw; padding: 0.8rem 1.2rem; border-radius: 0.6rem; transform: translate(-50%, -50%);
+  background: linear-gradient(180deg, #f3d98f, #d2a646); color: #3a2708; text-align: center; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45), inset 0 0 0 2px #8a6420;
+  opacity: 0; transition: opacity 0.25s 0.35s; }
+.plaque b { font-family: var(--serif); font-size: 1.35rem; }
+.plaque small { font-family: var(--type); font-size: 0.85rem; }
+.doors.shut .plaque { opacity: 1; }
+.doors.open .plaque { opacity: 0; transition: opacity 0.2s; }

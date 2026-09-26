@@ -110,6 +110,35 @@ function confetti() {
   setTimeout(() => wrap.remove(), 3800);
 }
 
+/* ---------- doors: every way in and out of a room, or the house, swings a pair of doors ---------- */
+const doorState = { busy: false };
+/** Which doors to show between two views: into a room, out of one, into the house when the game begins. */
+function doorFor(a, b) {
+  const place = (id) => { const r = b.rooms?.find((x) => x.id === id); return r ? `${r.emoji} ${r.name}` : ""; };
+  if (b.phase === "room" && a.phase === "move" && b.here) return { label: place(b.here.room), sub: b.here.dark ? "You push the door open… into pitch darkness." : "You push the door open…" };
+  if (b.phase === "body" && a.phase === "move" && b.body) return { label: `${b.body.room}`, sub: "You push the door open… and freeze." };
+  if (a.phase === "room" && ["move", "body", "quiet", "showdown"].includes(b.phase)) return { label: "🚪 Back to the hall", sub: "The door clicks shut behind you." };
+  if (a.phase === "lobby" && b.phase === "roles") return { label: "🏰 Wrenmoor Manor", sub: "The weekend begins." };
+  return null;
+}
+/** Two wooden doors swing shut over the screen, the next screen is drawn behind them, and they swing open onto it. */
+function doors({ label, sub }, then) {
+  if (doorState.busy || matchMedia("(prefers-reduced-motion: reduce)").matches) { then(); return; }
+  doorState.busy = true;
+  const panel = (side) => h("div", { class: `door ${side}` }, h("span", { class: "panel" }), h("span", { class: "panel" }), h("i", { class: "knob" }));
+  const ov = h("div", { class: "doors", "aria-hidden": "true" }, panel("left"), panel("right"),
+    h("div", { class: "plaque" }, h("b", {}, label), sub ? h("small", {}, sub) : null));
+  document.body.append(ov);
+  requestAnimationFrame(() => requestAnimationFrame(() => ov.classList.add("shut")));
+  setTimeout(() => {
+    doorState.busy = false;
+    then();
+    ov.classList.add("open");
+    sfx("door");
+    setTimeout(() => ov.remove(), 1000);
+  }, 900);
+}
+
 /* ---------- connection ---------- */
 // this tab's seat first (two tabs are two players); the last seat on this phone lets a closed browser rejoin
 let me = (() => { try { return JSON.parse(sessionStorage.getItem(ME) || localStorage.getItem(ME) || "null"); } catch { return null; } })();
@@ -138,6 +167,7 @@ function accept(d) {
   const before = S;
   S = d;
   const key = `${d.phase}|${d.day}|${d.hour}`;
+  const door = before && key !== lastPhaseKey ? doorFor(before, d) : null;
   if (key !== lastPhaseKey) {                                   // a new phase: reset what was half-picked and make a sound
     lastPhaseKey = key;
     freshScreen = true;
@@ -146,7 +176,7 @@ function accept(d) {
     const won = d.winner && (d.winner === "killers") === (d.me.role === "killer");
     if (before && d.phase === "over" && won) confetti();
     if (before && ["body", "showdown"].includes(d.phase)) { try { navigator.vibrate?.([90, 60, 180]); } catch { /* ignore */ } }
-    if (before) sfx({ roles: "role", move: "hour", room: "door", body: "scream", showdown: "scream", vote: "vote",
+    if (before) sfx({ roles: "role", move: "hour", room: door ? null : "door", body: "scream", showdown: "scream", vote: "vote",
       over: d.winner && ((d.winner === "killers") === (d.me.role === "killer")) ? "win" : "lose" }[d.phase] || "tick");
     if (!ui.dm) window.scrollTo({ top: 0 });
   }
@@ -156,6 +186,7 @@ function accept(d) {
     const incoming = (d.dms || []).filter((m) => m.to === d.me.pid).length - (before.dms || []).filter((m) => m.to === d.me.pid).length;
     if (incoming > 0) sfx("dm");
   }
+  if (door) return doors(door, () => { render(); syncVoice(); });
   render();
   syncVoice();
 }
@@ -270,6 +301,7 @@ function dropPeer(pid) { const pr = voice.peers.get(pid); if (!pr) return; try {
 
 /* ---------- rendering, keeping what you're typing ---------- */
 function render() {
+  if (doorState.busy) return;                                    // the doors are shut: draw the next screen when they open
   const active = document.activeElement?.dataset?.keep || null;
   const kept = Object.fromEntries([...document.querySelectorAll("[data-keep]")].map((el) => [el.dataset.keep, el.value]));
   const logs = Object.fromEntries([...document.querySelectorAll("[data-log]")].map((el) => [el.dataset.log, el.scrollHeight - el.scrollTop - el.clientHeight < 80]));
@@ -325,8 +357,7 @@ function home() {
       saveMe();
       history.replaceState(null, "", "/");
       S = null;
-      render();
-      startPolling();
+      doors({ label: "🏰 Wrenmoor Manor", sub: "The front doors creak open…" }, () => { render(); startPolling(); });
     } catch (e) { toast(e.message, 4000); }
   };
   const join = () => { const c = code.value.trim().toUpperCase(); if (c.length !== 4) { toast("Game codes have 4 letters."); code.focus(); return; } go("join", { code: c }); };
@@ -384,8 +415,11 @@ function lobby() {
 }
 async function leave() {
   try { await post(`/api/game/${me.code}`, { pid: me.pid, token: me.token, type: "leave" }); } catch { /* ignore */ }
-  stopVoice();
-  me = null; S = null; ui.dm = null; saveMe(); clearInterval(polling); render();
+  clearInterval(polling);
+  doors({ label: "Farewell, Wrenmoor", sub: "The front doors close behind you." }, () => {
+    stopVoice();
+    me = null; S = null; ui.dm = null; saveMe(); render();
+  });
 }
 
 /* ---------- your character and your secret ---------- */
