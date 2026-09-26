@@ -457,6 +457,76 @@ class Api(unittest.TestCase):
         self.assertEqual(v["ballots"], [{"from": "Ann", "to": "Kay"}, {"from": "Ben", "to": "Kay"}, {"from": "Cat", "to": "Skip"}, {"from": "Kay", "to": "Ann"}])
         self.assertEqual(v["ejected"]["role"], "killer")
 
+    def test_secret_missions_count_up(self):
+        g, (a, b, c, k), post = self.fixed_game()
+        self.assertTrue(all(p["mission"] for p in g["players"]))
+        a["mission"] = {"kind": "visit", "room": "kitchen", "n": 2}
+        b["mission"] = {"kind": "meet", "with": a["pid"], "n": 1}
+        k["mission"] = {"kind": "kill_in", "room": "garden"}
+        d = game.today(g)
+        g["carry"][k["pid"]] = "rope"
+        for hour in range(2):
+            d["moves"] = {a["pid"]: "kitchen", b["pid"]: "kitchen", c["pid"]: "garden", k["pid"]: "garden"}
+            game.resolve_move(g)
+            d["acts"] = {k["pid"]: {"strike": c["pid"]}} if hour == 1 else {}
+            game.resolve_room(g)
+        self.assertEqual(game.mission(g, a)["prog"], "2/2")
+        self.assertTrue(game.mission(g, a)["done"] and game.mission(g, b)["done"] and game.mission(g, k)["done"])
+        self.assertEqual(game.view(g, a)["me"]["mission"]["text"], "Spend 2 hours in the Kitchen")
+        self.assertNotIn("mission", game.view(g, a)["players"][1], "nobody sees anyone else's until the end")
+
+    def test_the_morning_paper_and_the_dying_clue(self):
+        g, (a, b, c, k), post = self.fixed_game()
+        d = game.today(g)
+        g["carry"][k["pid"]] = "rope"
+        d["moves"] = {k["pid"]: "garden", c["pid"]: "garden", a["pid"]: "library", b["pid"]: "library"}
+        game.resolve_move(g)
+        d["acts"] = {k["pid"]: {"strike": c["pid"]}}
+        with mock.patch.object(game.random, "random", return_value=0.1):
+            game.resolve_room(g)
+        self.assertIn(k["pid"], d["kill"]["clue"])
+        d["found"] = {"hour": 0, "by": [a["pid"]]}
+        game.set_phase(g, "talk", 60)
+        clue = game.view(g, a)["body"]["clue"]
+        self.assertIn(game.color_name(g, k["pid"]), clue)
+        self.assertEqual(len(game.today(g)["kill"]["clue"]), 3)
+        d["ejected"] = k["pid"]
+        game.new_day(g)
+        paper = game.today(g)["gazette"]
+        self.assertIn("THROWN OUT", paper["headline"])
+        self.assertIn("a killer after all", " ".join(paper["lines"]))
+        self.assertIn("found dead in the Garden", " ".join(paper["lines"]))
+        self.assertEqual(game.view(g, a)["gazette"]["day"], 1)
+
+    def test_anonymous_notes_and_jaccuse(self):
+        g, (a, b, c, k), post = self.fixed_game()
+        b["bot"] = True
+        game.set_phase(g, "talk", 60)
+        v = post(a, type="note", text="Kay was in the cellar").get_json()
+        m = v["chat"][-1]
+        self.assertEqual((m["name"], m["text"], m["note"]), ("An anonymous note", "Kay was in the cellar", True))
+        self.assertNotIn(a["pid"], str(m), "nothing gives away who wrote it")
+        self.assertEqual(post(a, type="note", text="again").status_code, 400, "once a game")
+        with self.sync():
+            v = post(a, type="accuse", target=b["pid"]).get_json()
+        said = [x for x in v["chat"] if x.get("accuse")]
+        self.assertEqual(said[-1]["accuse"], "Ben")
+        self.assertEqual(v["chat"][-1]["pid"], b["pid"], "the bot answers back")
+        self.assertTrue(v["accused"])
+        self.assertEqual(post(a, type="accuse", target=c["pid"]).status_code, 400, "once a meeting")
+
+    def test_a_killer_bot_slips_a_note(self):
+        g, (a, b, c, k), post = self.fixed_game()
+        k["bot"] = True
+        d = game.today(g)
+        d["kill"] = {"victim": c["pid"], "killer": k["pid"], "room": "garden", "hour": 0, "weapon": "rope", "witnesses": [], "heard": []}
+        c["alive"] = False
+        game.set_phase(g, "talk", 60)
+        with self.sync():
+            game.bot_speak(g, k["pid"], "note")
+        self.assertTrue(d["chat"][-1]["note"])
+        self.assertTrue(k["noted"])
+
 
 if __name__ == "__main__":
     unittest.main()

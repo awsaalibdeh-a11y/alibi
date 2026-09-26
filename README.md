@@ -17,6 +17,13 @@ the empty chairs.
   sees who's inside). Every guest can search one person's pockets once a game, during the meeting: you see what they're
   carrying, and they know you looked. Ghosts see the whole house and can rattle one room an hour with a sign (👻 🔪 👀…).
 - **The ballots are read out** one by one before the verdict lands.
+- **Secret missions.** Everyone gets a little private goal ("spend 3 hours in the Library", "be in a room with Theo
+  twice", the killer's "commit a murder in the Study"…), shown with your role and scored at the end.
+- **Dying clues.** Sometimes the victim is found clutching threads of three coats' colours: one of them is the killer's.
+- **J'accuse!** Once a meeting, point at someone in front of everyone (bots answer back, and accuse people too).
+  **Anonymous notes:** once a game, slip a note into the meeting that nobody can trace (killer bots use it to frame).
+- **The Wrenmoor Gazette** greets every new morning with yesterday's headlines.
+- **More awards** at the end: Eagle Eye, Pickpocket, Poltergeist, Mission accomplished.
 - **Look back.** You only know what you saw yourself (who was with you, who took what). Everyone sees where the body
   lay, roughly when and how they died, and what's missing from the house.
 - **Private messages** to anyone (bots answer in character). **Proximity voice:** with the mic on, you hear whoever's in
