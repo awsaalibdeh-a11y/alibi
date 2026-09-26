@@ -285,8 +285,10 @@ const roomName = (id) => S.rooms.find((r) => r.id === id)?.name || id;
 const roomOf = (id) => S.rooms.find((r) => r.id === id);
 const roleChip = () => h("button", { class: "tag role-chip", type: "button", onClick: () => { ui.revealed = !ui.revealed; render(); } },
   ui.revealed ? `${S.me.role === "killer" ? "🔪 Killer" : "🕯️ Guest"} · ${S.me.char?.title || ""}` : "👁 My role");
-const ghostBanner = () => (!S.me.alive ? h("div", { class: "ghost" }, "👻 ", S.me.ejected ? "You were voted out." : "You're dead.",
-  " You can watch everything. Only other ghosts can hear you.") : null);
+const ghostBanner = () => (!S.me.alive ? h("div", { class: "ghost stack" },
+  h("span", {}, "👻 ", S.me.ejected ? "You were voted out." : "You're dead.", " Stay and watch everything (only other ghosts can hear you), or leave: the game carries on at its own pace either way."),
+  h("div", { class: "row" }, h("span", { class: "spacer" }),
+    h("button", { class: "btn sm ghost", type: "button", onClick: () => { if (confirm("Leave for good? You can't come back to this game.")) leave(); } }, "Leave the game"))) : null);
 const voiceTip = () => (!voice.on && S.players.some((p) => p.voice && p.pid !== S.me.pid) ? h("button", { class: "tipbtn", type: "button", onClick: toggleVoice }, "🎙️ Others are on voice: tap to join") : null);
 
 /* ---------- home ---------- */
@@ -353,7 +355,7 @@ function lobby() {
       h("div", { class: "plist" }, S.players.map((p) => h("div", { class: "prow" }, face(p), h("b", {}, p.name, p.pid === S.me.pid ? " (you)" : ""),
         p.bot ? h("span", { class: "tag" }, "🤖 bot") : p.host ? h("span", { class: "tag" }, "host") : null, p.voice ? h("span", { class: "tag" }, "🎙️") : null, h("span", { class: "spacer" }),
         p.bot ? null : h("span", { class: p.ready ? "yes" : "muted" }, p.ready ? "✓ Ready" : "Not ready"))))),
-    !S.public && S.me.host ? h("div", { class: "card row" }, h("span", {}, h("b", {}, "Bots"), h("br"), h("small", { class: "muted" }, "Fill empty chairs. At least 4 in all; 6+ opens the whole house.")), h("span", { class: "spacer" }),
+    !S.public && S.me.host ? h("div", { class: "card row" }, h("span", {}, h("b", {}, "Bots"), h("br"), h("small", { class: "muted" }, "Fill empty chairs. At least 4 in all; more guests open more rooms.")), h("span", { class: "spacer" }),
       h("div", { class: "stepper" }, h("button", { type: "button", "aria-label": "One bot fewer", disabled: !bots.length, onClick: () => act("bots", { n: bots.length - 1 }) }, "−"),
         h("b", {}, String(bots.length)), h("button", { type: "button", "aria-label": "One more bot", disabled: S.players.length >= 8, onClick: () => act("bots", { n: bots.length + 1 }) }, "+"))) : null,
     !S.public ? h("button", { class: "btn block " + (mine?.ready ? "" : "primary"), type: "button", onClick: () => act("ready", { on: !mine?.ready }) }, mine?.ready ? "Not ready yet" : "I'm ready") : null,
@@ -394,9 +396,12 @@ function dayHeader() {
 function lastHour() {
   const last = (S.myday || [])[S.myday.length - 1];
   if (!last) return null;
+  const took = last.items || [];
   return h("div", { class: "card recap" }, h("span", { class: "label" }, `Last hour · ${last.hour}`),
     h("p", {}, `In the ${roomName(last.room)} `, last.saw.length ? ["with ", h("b", {}, last.saw.join(", ")), "."] : "on your own."),
-    last.events.map((e) => h("p", { class: "small ev" }, e)));
+    took.length ? h("div", { class: "took" }, took.map((x) => h("span", { class: `tookchip ${x.kind}` }, x.kind === "take" ? "✋ " : "↩️ ", h("b", {}, x.who),
+      x.kind === "take" ? ` ${x.sneak ? "quietly " : ""}took the ${x.item}` : ` put back the ${x.item}`, x.sneak && x.who !== "You" ? " 👀" : ""))) : null,
+    last.events.filter((e) => !/ (quietly )?took the | put the .+ back\./.test(e)).map((e) => h("p", { class: "small ev" }, e)));
 }
 function move() {
   if (!S.me.alive) return h("section", { class: "stack" }, bar(`Day ${S.day}`), ghostBanner(), dayHeader(), h("p", { class: "lead" }, "The living are choosing where to go…"), ghostChat());
@@ -423,7 +428,8 @@ function room() {
   if (!here) return h("section", { class: "stack" }, bar(`Day ${S.day}`), dayHeader());
   const r = roomOf(here.room);
   const killer = S.me.role === "killer";
-  const acted = S.acted;
+  const a = S.acted || {};                                       // what you've chosen so far: saved as you tap, used when the hour ends
+  const choose = (patch) => act("do", { act: a.act === "look" ? "look" : "act", take: a.take || null, sneak: !!a.sneak, put: !!a.put, strike: a.strike || null, ...patch });
   const people = here.dark
     ? h("div", { class: "card dark" }, h("b", {}, "It's pitch dark."), h("p", {}, here.count ? `You can hear ${here.count === 1 ? "someone" : `${here.count} people`} breathing nearby.` : "You seem to be alone… probably."))
     : h("div", { class: "card" }, h("span", { class: "label" }, here.people.length ? "Here with you" : "Nobody else is here"),
@@ -434,23 +440,28 @@ function room() {
   const home = S.me.carrying && S.rooms.find((x) => x.items.includes(S.me.carrying))?.id === here.room;
   const victims = here.people.filter((p) => who(p.pid)?.role !== "killer");
   const canStrike = killer && S.me.carrying && (here.dark ? here.count === 1 : victims.length === 1 && here.people.length === 1);
-  const doPanel = acted ? h("div", { class: "card center stack" }, h("b", {}, "✓ You've decided."), h("p", { class: "muted small" }, "Keep talking until everyone's ready, or the clock runs out."))
-    : h("div", { class: "card stack" }, h("span", { class: "label" }, "What do you do?"),
-      h("div", { class: "opts2" },
-        opt(!ui.look, `✨ ${r.act}`, () => { ui.look = false; render(); }),
-        opt(ui.look, "🔍 Look around", () => { ui.look = true; render(); })),
-      !S.me.carrying ? h("div", { class: "opts2" }, here.items.map((it) => opt(ui.take === it, `✋ Take the ${it}`, () => { ui.take = ui.take === it ? null : it; render(); })),
-        !here.items.length ? h("p", { class: "muted small" }, "Nothing here worth taking: someone got there first.") : null) : null,
-      home ? opt(ui.put, `↩️ Put back the ${S.me.carrying}`, () => { ui.put = !ui.put; render(); }) : null,
-      killer ? (canStrike ? opt(!!ui.strike, here.dark ? `🔪 Strike whoever is in the dark (with the ${S.me.carrying})` : `🔪 Strike ${victims[0].name} (with the ${S.me.carrying})`,
-        () => { ui.strike = ui.strike ? null : (here.dark ? "dark" : victims[0].pid); render(); }, "strike")
-        : h("p", { class: "muted small" }, S.me.carrying ? "🔪 You can only strike when you're alone with one person." : "🔪 Take a weapon: you can strike from the next hour.")) : null,
-      h("button", { class: "btn primary block", type: "button", onClick: () => act("do", { act: ui.look ? "look" : "act", take: ui.take, put: ui.put, strike: ui.strike }) }, "Done for this hour"));
+  const looking = a.act === "look";
+  const doPanel = h("div", { class: "card stack" }, h("span", { class: "label" }, "What do you do?"),
+    h("div", { class: "opts2" },
+      opt(!looking, `✨ ${r.act}`, () => choose({ act: "act" })),
+      opt(looking, "🔍 Look around", () => choose({ act: "look" }))),
+    !S.me.carrying ? h("div", { class: "opts2" }, here.items.map((it) => opt(a.take === it, `✋ Take the ${it}`, () => choose({ take: a.take === it ? null : it }))),
+      !here.items.length ? h("p", { class: "muted small" }, "Nothing here worth taking: someone got there first.") : null) : null,
+    a.take ? opt(!!a.sneak, "🤫 Sneak it: only someone looking around will notice", () => choose({ sneak: !a.sneak }), "sneak") : null,
+    home ? opt(!!a.put, `↩️ Put back the ${S.me.carrying}`, () => choose({ put: !a.put })) : null,
+    killer ? (canStrike ? opt(!!a.strike, here.dark ? `🔪 Strike whoever is in the dark (with the ${S.me.carrying})` : `🔪 Strike ${victims[0].name} (with the ${S.me.carrying})`,
+      () => choose({ strike: a.strike ? null : (here.dark ? "dark" : victims[0].pid) }), "strike")
+      : h("p", { class: "muted small" }, S.me.carrying ? "🔪 You can only strike when you're alone with one person." : "🔪 Take a weapon: you can strike from the next hour.")) : null,
+    S.leaving ? h("p", { class: "center muted small" }, "✓ Ready to move on. Waiting for the others, or the clock.")
+      : h("button", { class: "btn primary block", type: "button", onClick: async () => { if (!S.acted) await choose({}); act("leave_room"); } }, "Leave the room ▸"),
+    h("p", { class: "muted small center" }, "Your choice is saved as you tap it. Stay up to a minute to talk."));
   return h("section", { class: "stack" }, bar(`${r.emoji} ${r.name}`), dayHeader(), people,
+    here.gone?.length ? h("p", { class: "gone" }, "🕳️ Gone from this room: ", here.gone.map((i) => `the ${i}`).join(", "), ". Someone's taken it.") : null,
     h("div", { class: "card stack" }, h("span", { class: "label" }, here.dark ? "Whispers in the dark" : "Talk here"),
       h("div", { class: "chatlog small-log", "data-log": "room" }, (S.roomchat || []).map(msgEl),
         !(S.roomchat || []).length ? h("p", { class: "muted small center" }, here.people.length || here.count ? "Say hello. Only the people in this room can read it." : "Nobody to talk to.") : null),
-      here.people.length || here.count ? composer("room", "Say something to the room…", (t) => act("room", { text: t })) : null),
+      typingLine(S.typing?.room),
+      here.people.length || here.count ? composer("room", "Say something to the room…", (t) => act("room", { text: t }), "room") : null),
     doPanel, voiceTip());
 }
 
@@ -461,16 +472,25 @@ function msgEl(m) {
     h("div", {}, h("b", { style: { color: m.color } }, m.name, m.bot ? " 🤖" : "", m.ghost ? " 👻" : ""),
       m.claim ? h("div", { class: "claim" }, m.claim.map((c) => h("span", {}, h("i", {}, c.hour), " ", c.room))) : h("p", {}, m.text)));
 }
-function composer(key, placeholder, send) {
+let typedAt = 0;
+/** A text box; `ctx` says where you're typing, so the others see "… is typing" (sent at most every couple of seconds). */
+function composer(key, placeholder, send, ctx) {
   const input = h("input", { class: "input", placeholder, maxlength: "200", "aria-label": placeholder, "data-keep": key, enterkeyhint: "send", autocomplete: "off" });
   const go = () => { const t = input.value.trim(); if (!t) return; input.value = ""; send(t); };
   input.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
+  if (ctx) input.addEventListener("input", () => {
+    if (!input.value.trim() || Date.now() - typedAt < 2500) return;
+    typedAt = Date.now();
+    post(`/api/game/${me.code}`, { pid: me.pid, token: me.token, type: "typing", ctx }).catch(() => {});
+  });
   return h("div", { class: "line" }, input, h("button", { class: "btn primary", type: "button", onClick: go }, "Send"));
 }
+const typingLine = (names) => (names?.length ? h("p", { class: "typing-line" }, `${names.join(", ")} ${names.length > 1 ? "are" : "is"} typing…`) : null);
 function ghostChat() {
   return h("div", { class: "card stack" }, h("span", { class: "label" }, "Ghost chat"),
     h("div", { class: "chatlog", "data-log": "ghost" }, (S.chat || []).filter((m) => m.ghost).map(msgEl)),
-    composer("ghost", "Whisper to the other ghosts…", (t) => act("chat", { text: t })));
+    typingLine(S.typing?.meet),
+    composer("ghost", "Whisper to the other ghosts…", (t) => act("chat", { text: t }), "meet"));
 }
 /** Private messages: a list of everyone you can write to, or one conversation. */
 function dmPanel() {
@@ -495,7 +515,8 @@ function dmPanel() {
     body = [h("div", { class: "row" }, h("button", { class: "btn ghost sm", type: "button", onClick: () => { ui.dm = "list"; render(); } }, "‹ All"), face(p || {}, "sm"), h("h3", { style: { margin: 0 } }, p?.name || "?")),
       h("div", { class: "chatlog", "data-log": "dm" }, thread.map((m) => msgEl({ ...m, pid: m.from, color: who(m.from)?.color, bot: who(m.from)?.bot, name: who(m.from)?.name || m.name })),
         !thread.length ? h("p", { class: "muted small center" }, `Say something only ${p?.name} will see.`) : null),
-      p && p.alive === S.me.alive ? composer("dm", `Message ${p.name}…`, (t) => act("dm", { to: ui.dm, text: t })) : null];
+      (S.typing?.dm || []).includes(ui.dm) ? typingLine([p?.name]) : null,
+      p && p.alive === S.me.alive ? composer("dm", `Message ${p.name}…`, (t) => act("dm", { to: ui.dm, text: t }), `dm:${ui.dm}`) : null];
   }
   return h("div", { class: "overlay" }, h("div", { class: "sheet-scrim", onClick: close }), h("div", { class: "sheet", role: "dialog", "aria-modal": "true", "aria-label": "Private messages" },
     h("button", { class: "ibtn close", type: "button", "aria-label": "Close", onClick: close }, "✕"), body));
@@ -582,7 +603,8 @@ function talk() {
   } else {
     main = h("div", { class: "stack" }, h("div", { class: "chatlog", "data-log": "meeting" }, (S.chat || []).map(msgEl),
       !(S.chat || []).length ? h("p", { class: "muted small center" }, "Nobody has said anything yet. Start with where you were.") : null),
-      composer("chat", S.me.alive ? "Say something to everyone…" : "Whisper to the other ghosts…", (t) => act("chat", { text: t })));
+      typingLine(S.typing?.meet),
+      composer("chat", S.me.alive ? "Say something to everyone…" : "Whisper to the other ghosts…", (t) => act("chat", { text: t }), "meet"));
   }
   return h("section", { class: "stack" }, bar(`Day ${S.day} · the meeting`, timer(S.deadline)), ghostBanner(), voiceTip(), tabs, main,
     S.me.alive ? h("div", { class: "row" },

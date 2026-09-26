@@ -6,9 +6,11 @@ the empty chairs.
 - **A story.** Lord Ashcombe's will is read at dusk. Every guest gets a character (the Heir, the Doctor, the Actress…),
   and every hour has a story beat: some just colour the day, some change it (a power cut leaves a room pitch dark and
   hides who's in it; rain locks the garden).
-- **Every hour, two steps.** Move: pick a room. Then the room: see who came, talk to them (typing or voice), and choose
-  what to do: an activity, look around (who was here the hour before), take or put back an object.
-- **Small games** (4-5 players) use four rooms so people meet more often.
+- **Every hour, two steps.** Move: pick a room. Then the room (up to a minute, or until everyone leaves): see who came,
+  talk to them (typing or voice), and choose what to do: an activity, look around (who was here the hour before), take
+  or put back an object. Take it openly, or sneak it: then only someone looking around notices.
+- **The house grows with the party:** three rooms for four guests, up to all six for eight, so people keep meeting.
+- **You're the killer more often than a bot is**, when you play with bots.
 - **The killer** (two in a game of 7 or 8) strikes when they are alone with someone and already carrying a weapon.
   Walk into that room later and you find the body; otherwise it's found at dusk.
 - **Look back.** You only know what you saw yourself (who was with you, who took what). Everyone sees where the body
@@ -42,7 +44,8 @@ python app.py            # http://127.0.0.1:5085
 ```
 
 `OPENAI_API_KEY` (a local `.env`, or the host's environment) lets the bots talk with AI; without it they use plain
-lines. Optional: `OPENAI_MODEL` (default gpt-5), `OPENAI_REASONING_EFFORT` (default minimal), `AI_DAILY_LIMIT`.
+lines. Optional: `OPENAI_MODEL` (default gpt-5-mini, for quick replies; falls back to gpt-5 if the key can't use it),
+`OPENAI_REASONING_EFFORT` (default minimal), `AI_DAILY_LIMIT`.
 
 ## Tests
 

@@ -108,6 +108,73 @@ class Rules(unittest.TestCase):
         self.assertEqual(v["here"]["people"], [])
         self.assertEqual(v["here"]["count"], 1)
 
+    def test_more_guests_open_more_rooms(self):
+        for n, rooms in ((4, 3), (5, 4), (6, 4), (7, 5), (8, 6)):
+            g = game.new_game()
+            for _ in range(n):
+                game.add_bot(g)
+            self.assertEqual(len(game.rooms_of(g)), rooms, n)
+
+    def test_people_are_the_killer_more_often_than_bots(self):
+        human_killer, trials = 0, 400
+        for _ in range(trials):
+            g = game.new_game()
+            me = game.add_player(g, "Ann")
+            for _ in range(5):
+                game.add_bot(g)
+            game.start(g)
+            human_killer += me["role"] == "killer"
+        self.assertGreater(human_killer / trials, 1 / 6 + 0.05, "better than the plain one-in-six")
+        self.assertLess(human_killer / trials, 0.6, "but not every game")
+
+    def test_a_quiet_take_is_only_seen_by_someone_looking_around(self):
+        g = game.new_game()
+        a, b, c, k = (game.add_player(g, n) for n in ("Ann", "Ben", "Cat", "Kay"))
+        game.start(g)
+        game.new_day(g)
+        d = game.today(g)
+        for beat in d["beats"]:
+            beat.update(fx=None)
+        d["moves"] = {p["pid"]: "kitchen" for p in (a, b, k)} | {c["pid"]: "garden"}
+        game.resolve_move(g)
+        d["acts"] = {k["pid"]: {"act": "Bake bread", "take": "kitchen knife", "sneak": True}, a["pid"]: {"act": "Bake bread"}, b["pid"]: {"act": "look"}}
+        game.resolve_room(g)
+        seen = lambda p: " ".join(game.my_day(g, p, d)[-1]["events"])
+        self.assertNotIn("knife", seen(a), "busy baking: didn't notice")
+        self.assertIn("Kay quietly took the kitchen knife", seen(b), "looking around: caught it")
+        self.assertIn("You quietly took the kitchen knife", seen(k))
+        self.assertEqual(g["carry"][k["pid"]], "kitchen knife")
+
+    def test_a_killers_story_only_lies_where_it_matters(self):
+        g = game.new_game()
+        a, b, c, k = (game.add_player(g, n) for n in ("Ann", "Ben", "Cat", "Kay"))
+        game.start(g)
+        for p in g["players"]:
+            p["role"] = "guest"
+        k["role"] = "killer"
+        game.new_day(g)
+        d = game.today(g)
+        for beat in d["beats"]:
+            beat.update(fx=None)
+        def hour(moves, acts):
+            d["moves"] = {p["pid"]: r for p, r in moves}
+            game.resolve_move(g)
+            d["acts"] = {p["pid"]: x for p, x in acts}
+            game.resolve_room(g)
+        hour([(k, "library"), (a, "garden"), (b, "kitchen"), (c, "garden")], [])
+        hour([(k, "kitchen"), (a, "garden"), (b, "garden"), (c, "garden")], [(k, {"take": "kitchen knife"})])
+        hour([(k, "garden"), (c, "garden"), (a, "library"), (b, "library")], [(k, {"strike": c["pid"]})])
+        self.assertEqual(d["kill"]["victim"], c["pid"])
+        with mock.patch.object(game, "BOT_LIAR_SKILL", 1):              # a careful liar: only lies nobody alive can catch
+            claim = game.claim_for(g, k)
+            self.assertEqual(claim["0"], "library", "nothing to hide at 9 AM")
+            self.assertEqual(claim["1"], "library", "the one room nobody was in when it picked up the knife")
+            self.assertEqual(claim["2"], "kitchen", "the one room nobody was in during the murder")
+        with mock.patch.object(game, "BOT_LIAR_SKILL", 0):              # a clumsy one: just moves itself away from the murder
+            claim = game.claim_for(g, k)
+            self.assertEqual(claim["1"], "kitchen")
+            self.assertNotEqual(claim["2"], "garden")
+
     def test_views_never_leak_roles(self):
         g = game.new_game()
         me = game.add_player(g, "Ann")
@@ -176,6 +243,38 @@ class Api(unittest.TestCase):
         self.assertEqual(g["phase"], "roles")
         self.assertEqual(len(g["players"]), game.QUEUE_SIZE)
 
+    def sync(self):
+        return mock.patch.object(game.threading, "Thread", side_effect=lambda target, args, daemon: mock.Mock(start=lambda: target(*args)))
+
+    def test_bots_open_the_meeting_and_answer_at_once(self):
+        g = game.new_game()
+        me = game.add_player(g, "Ann")
+        for _ in range(3):
+            game.add_bot(g)
+        game.start(g)
+        game.new_day(g)
+        game.begin_talk(g)
+        d = game.today(g)
+        opener = next(x for x in d["bot_plan"] if x["kind"] == "open")
+        self.assertLess(opener["at"] - game.now(), 2, "somebody breaks the silence within a couple of seconds")
+        bot = next(p for p in g["players"] if p["bot"])
+        before = len(d["chat"])
+        with self.sync():
+            self.c.post(f"/api/game/{g['code']}", json={"pid": me["pid"], "token": me["token"], "type": "chat", "text": f"{bot['name']}, where were you?"})
+        self.assertTrue(any(m["pid"] == bot["pid"] for m in d["chat"][before:]), "the bot you named answers straight away")
+
+    def test_a_dead_bot_answers_a_ghost(self):
+        g = game.new_game()
+        me = game.add_player(g, "Ann")
+        bots = [game.add_bot(g) for _ in range(3)]
+        game.start(g)
+        game.new_day(g)
+        me["alive"] = bots[0]["alive"] = False
+        bots[0]["killed"] = {"day": 1, "hour": 0, "room": "library", "by": bots[1]["pid"], "weapon": "rope"}
+        with self.sync():
+            v = self.c.post(f"/api/game/{g['code']}", json={"pid": me["pid"], "token": me["token"], "type": "dm", "to": bots[0]["pid"], "text": "Who got you?"}).get_json()
+        self.assertTrue(any(m["from"] == bots[0]["pid"] for m in v["dms"]))
+
     def test_the_day_meeting_rooms_messages_and_voice(self):
         me = self.c.post("/api/play", json={"mode": "bots", "name": "Ann"}).get_json()
         url, auth = f"/api/game/{me['code']}", {"pid": me["pid"], "token": me["token"]}
@@ -194,7 +293,9 @@ class Api(unittest.TestCase):
         self.assertTrue(any(m["text"] == "Where were you?" for m in v["dms"]))
         self.assertEqual(self.c.post(url, json={**auth, "type": "signal", "to": bot["pid"], "data": {}}).status_code, 400, "bots have no voice")
         v = self.c.post(url, json={**auth, "type": "do", "act": "look", "take": "rope"}).get_json()
-        self.assertEqual(g["phase"], "move")
+        self.assertEqual(g["phase"], "room", "choosing what to do doesn't end the hour: you can stay and talk")
+        self.c.post(url, json={**auth, "type": "leave_room"})
+        self.assertEqual(g["phase"], "move", "everyone human has left the room")
 
 
 if __name__ == "__main__":

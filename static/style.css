@@ -160,6 +160,12 @@ select.input { appearance: auto; }
 .optbtn.on { background: var(--gold-soft); color: var(--ink); box-shadow: inset 0 0 0 2px var(--gold-2); }
 .optbtn.strike { width: 100%; background: var(--red-soft); color: var(--red); }
 .optbtn.strike.on { background: var(--red); color: #fff; box-shadow: none; }
+.optbtn.sneak { width: 100%; }
+.gone { margin: 0; padding: 0.55rem 0.8rem; border-radius: 0.85rem; background: var(--red-soft); color: #7a1f17; font-size: 0.9rem; }
+.took { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0.35rem 0; }
+.tookchip { padding: 0.25rem 0.6rem; border-radius: 999px; background: var(--red-soft); color: #7a1f17; font-size: 0.84rem; }
+.tookchip.put { background: var(--ok-soft); color: #1f5c38; }
+.typing-line { margin: -0.3rem 0 0; color: var(--muted); font-size: 0.84rem; font-style: italic; }
 
 /* ---------- chat ---------- */
 .chatlog { display: grid; align-content: start; gap: 0.55rem; max-height: min(50vh, 30rem); min-height: 10rem; overflow-y: auto; padding: 0.75rem; border-radius: 1rem; background: var(--bg-3); }
