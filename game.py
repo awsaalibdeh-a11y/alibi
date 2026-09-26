@@ -83,6 +83,7 @@ T = {"countdown": 4, "roles": 14, "move": 20, "room": 60, "body": 12, "quiet": 8
 ROOMS_FOR = {4: 3, 5: 4, 6: 4, 7: 5, 8: 6}                            # guests -> rooms: few enough that people keep meeting
 ROOM_ORDER = ["library", "kitchen", "garden", "study", "ballroom", "cellar"]
 REACTIONS = ["👍", "😂", "😱", "🤔", "🔪", "👀"]
+HAUNTS = ["👻", "🔪", "👀", "🕯️", "❄️", "❓"]                           # what a ghost can send rattling through a room
 HUMAN_KILLER_WEIGHT = 2.5                                            # people get the knife more often than bots do
 BOT_LIAR_SKILL = 0.25                                                 # how often a killer bot tells a lie nobody can catch
 
@@ -187,13 +188,13 @@ def start(g):
         add_bot(g)
     n = len(g["players"])
     for p, (title, blurb) in zip(g["players"], random.sample(CHARACTERS, n)):
-        p.update(role="guest", alive=True, ready=False, ejected=False, killed=None, char={"title": title, "blurb": blurb})
+        p.update(role="guest", alive=True, ready=False, ejected=False, killed=None, searched=False, char={"title": title, "blurb": blurb})
     pool = list(g["players"])
     for _ in range(2 if n >= 7 else 1):
         p = random.choices(pool, weights=[1.0 if q["bot"] else HUMAN_KILLER_WEIGHT for q in pool])[0]
         pool.remove(p)
         p["role"] = "killer"
-    g.update(day=0, days=[], winner=None, dms=[], signals={}, meets={})
+    g.update(day=0, days=[], winner=None, dms=[], signals={}, meets={}, searches=[])
     set_phase(g, "roles", T["roles"])
 
 
@@ -226,6 +227,29 @@ def beat(g, h=None):
     return d["beats"][g["hour"] if h is None else h] if d else None
 
 
+def can_cut(g, room=None):
+    """The killer's trick, once a day: kill the lights in a room for the coming hour (not in a storm, not in the garden)."""
+    d = today(g)
+    return (g["phase"] == "move" and d.get("sabotaged") is None and beat(g)["fx"] != "rain"
+            and (room is None or (room in room_ids(g) and room != "garden")))
+
+
+def cut_lights(g, room):
+    d = today(g)
+    d["sabotaged"] = g["hour"]
+    d["beats"][g["hour"]] = {"text": f"The lights suddenly die in the {ROOM[room]['name']}. Someone has been at the fuse box…",
+                             "fx": "dark", "room": room, "sabotage": True}
+    bump(g)
+
+
+def haunt(g, p, room, emoji):
+    d = today(g)
+    d.setdefault("haunts", {})[p["pid"]] = g["hour"]
+    d["roomchat"].setdefault(f"{g['hour']}:{room}", []).append({"id": secrets.token_hex(3), "pid": p["pid"], "name": f"Ghost of {p['name']}", "color": p["color"],
+                                                                "bot": p["bot"], "text": emoji, "t": now(), "ghost": True, "haunt": True})
+    bump(g)
+
+
 # ---------- the day ----------
 def bot_move(g, p):
     d = today(g)
@@ -255,6 +279,9 @@ def resolve_move(g):
         if b["fx"] == "rain" and room == b["room"]:
             room = "library"
         where[p["pid"]] = room
+    for p in living(g):                                                # a killer bot with a weapon sometimes kills the lights where it's going
+        if p["bot"] and p["role"] == "killer" and g["carry"].get(p["pid"]) and can_cut(g, where[p["pid"]]) and random.random() < 0.3:
+            cut_lights(g, where[p["pid"]])
     d["cur"] = {"where": where, "idle": [pid for pid in where if pid not in d["moves"] and not player(g, pid)["bot"]]}
     d["moves"] = {}
     d["acts"] = {}
@@ -268,6 +295,10 @@ def resolve_move(g):
             record_hour(g, {q: {"act": "found the body"} for q in where}, {r["id"]: [] for r in ROOMS}, {})
             return body_found(g)
     set_phase(g, "room", T["room"])
+    live_rooms = sorted(set(where.values()))
+    for p in g["players"]:                                             # the dead rattle the house now and then
+        if p["bot"] and not p["alive"] and live_rooms and random.random() < 0.2:
+            haunt(g, p, random.choice(live_rooms), random.choice(HAUNTS))
 
 
 def occupants(g, room):
@@ -348,7 +379,7 @@ def resolve_room(g):
             dark = is_dark(beat(g), room)
             others = [q for q in occupants(g, room) if q != pid and player(g, q)["role"] != "killer" and player(g, q)["alive"]]
             # walk up to them and strike, alone or not; in the dark you can only find someone if they're the only one there
-            victim = others[0] if dark and target == "dark" and len(others) == 1 else target if not dark and target in others else None
+            victim = (others[0] if len(others) == 1 and target in ("dark", others[0]) else None) if dark else target if target in others else None
             if not victim:
                 continue
             victim = player(g, victim)
@@ -593,8 +624,10 @@ def view(g, p):
     v = {"code": g["code"], "public": g["public"], "v": g["v"], "now": now(), "phase": g["phase"], "deadline": g["deadline"], "start_at": g["start_at"],
          "day": g["day"], "hour": g["hour"], "hours": HOURS, "rooms": rooms_of(g), "showdown": bool(today(g) and today(g).get("showdown")), "players": pub, "winner": g["winner"], "prologue": PROLOGUE,
          "me": {"pid": p["pid"], "name": p["name"], "role": p["role"], "alive": p["alive"], "host": p["pid"] == g["host"], "carrying": g["carry"].get(p["pid"]),
-                "ejected": p.get("ejected", False), "char": p.get("char"), "voice": p.get("voice", False)},
-         "dms": [m for m in g["dms"] if p["pid"] in (m["from"], m["to"])][-120:]}
+                "ejected": p.get("ejected", False), "char": p.get("char"), "voice": p.get("voice", False), "searched": p.get("searched", False)},
+         "dms": [m for m in g["dms"] if p["pid"] in (m["from"], m["to"])][-120:],
+         "searches": [{"by": name_of(g, s["by"]), "target": name_of(g, s["target"]), "found": s["found"], "day": s["day"], "mine": s["by"] == p["pid"]}
+                      for s in g.get("searches", []) if p["pid"] in (s["by"], s["target"])]}
     ty = {q: x["ctx"] for q, x in g.get("typing", {}).items() if q != p["pid"] and now() - x["t"] < 12 and player(g, q)}
     room_key = f"{g['hour']}:{d['cur']['where'].get(p['pid'])}" if d and g["phase"] == "room" and d.get("cur") else None
     v["typing"] = {"dm": [q for q, c in ty.items() if c == ("dm", p["pid"])],
@@ -608,6 +641,11 @@ def view(g, p):
         v["chat"] = [m for m in d["chat"] if dead or over or not m.get("ghost")][-80:]
         if g["phase"] == "move":
             v["moved"] = d["moves"].get(p["pid"])
+            if killer and p["alive"]:
+                v["canCut"] = can_cut(g)
+        if g["phase"] == "room" and dead and d["cur"]:                 # the dead see the whole house, and can rattle it once an hour
+            v["house"] = [{"room": r, "people": [name_of(g, q) for q in occupants(g, r)]} for r in room_ids(g)]
+            v["haunted"] = d.get("haunts", {}).get(p["pid"]) == g["hour"]
         if g["phase"] == "room" and d["cur"]:
             room = d["cur"]["where"].get(p["pid"])
             if room:
@@ -620,7 +658,8 @@ def view(g, p):
                              "gone": [i for i in ROOM[room]["items"] if g["items"].get(i) != room]}
                 v["leaving"] = p["pid"] in d.get("leaving", ())
                 key = f"{g['hour']}:{room}"
-                v["roomchat"] = [dict(m, name="A voice in the dark", color="#7d7466") if dark and m["pid"] != p["pid"] else m for m in d["roomchat"].get(key, [])]
+                v["roomchat"] = [dict(m, name="A voice in the dark", color="#7d7466") if dark and m["pid"] != p["pid"] and not m.get("haunt") else m
+                                 for m in d["roomchat"].get(key, [])]
                 v["acted"] = d["acts"].get(p["pid"])
         if g["phase"] in ("body", "talk", "vote", "result", "over", "quiet"):
             k = d["kill"]
@@ -635,6 +674,7 @@ def view(g, p):
             v["tally"] = {("skip" if k == "skip" else name_of(g, k)): n for k, n in d["tally"].items()}
             ej = d.get("ejected")
             v["ejected"] = {"name": name_of(g, ej), "role": player(g, ej)["role"]} if ej else None
+            v["ballots"] = [{"from": name_of(g, q), "to": "Skip" if t == "skip" else name_of(g, t)} for q, t in d["votes"].items() if player(g, q)]
     if over:
         v["truth"] = truth(g)
         v["awards"] = awards(g)
@@ -650,7 +690,7 @@ def awards(g):
             if target in votes:
                 votes[target] += 1
         for m in d["chat"] + [m for lst in d["roomchat"].values() for m in lst]:
-            if m["pid"] in msgs and not m.get("claim"):
+            if m["pid"] in msgs and not m.get("claim") and not m.get("haunt"):
                 msgs[m["pid"]] += 1
     s = lambda n, word: f"{n} {word}{'' if n == 1 else 's'}"
     out = []
@@ -1245,6 +1285,25 @@ def act(code):
             if p["role"] == "killer" and body.get("strike"):
                 a["strike"] = body["strike"]
             d["acts"][p["pid"]] = a
+            bump(g)
+        elif kind == "cut" and p["alive"] and p["role"] == "killer":
+            if not can_cut(g, body.get("room")):
+                return _err("You can't cut the lights now: once a day, while everyone picks a room.")
+            cut_lights(g, body["room"])
+        elif kind == "haunt" and g["phase"] == "room" and not p["alive"]:
+            if d.get("haunts", {}).get(p["pid"]) == g["hour"]:
+                return _err("You've already rattled the house this hour.")
+            if body.get("room") not in room_ids(g) or body.get("emoji") not in HAUNTS:
+                return _err("Pick a room and a sign.")
+            haunt(g, p, body["room"], body["emoji"])
+        elif kind == "search" and g["phase"] == "talk" and p["alive"]:
+            target = player(g, body.get("target"))
+            if p.get("searched"):
+                return _err("You've already searched someone this game.")
+            if not target or target["pid"] == p["pid"] or not target["alive"]:
+                return _err("Pick someone alive to search.")
+            p["searched"] = True
+            g["searches"].append({"by": p["pid"], "target": target["pid"], "found": g["carry"].get(target["pid"]), "day": g["day"]})
             bump(g)
         elif kind == "leave_room" and g["phase"] == "room" and p["alive"]:
             d.setdefault("leaving", set()).add(p["pid"])

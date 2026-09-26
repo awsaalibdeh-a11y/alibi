@@ -13,6 +13,10 @@ the empty chairs.
 - **You're the killer more often than a bot is**, when you play with bots.
 - **The killer** (two in a game of 7 or 8) strikes when they are alone with someone and already carrying a weapon.
   Walk into that room later and you find the body; otherwise it's found at dusk.
+- **Tricks up everyone's sleeve.** The killer can cut the lights in one room once a day (everyone sees them go, nobody
+  sees who's inside). Every guest can search one person's pockets once a game, during the meeting: you see what they're
+  carrying, and they know you looked. Ghosts see the whole house and can rattle one room an hour with a sign (👻 🔪 👀…).
+- **The ballots are read out** one by one before the verdict lands.
 - **Look back.** You only know what you saw yourself (who was with you, who took what). Everyone sees where the body
   lay, roughly when and how they died, and what's missing from the house.
 - **Private messages** to anyone (bots answer in character). **Proximity voice:** with the mic on, you hear whoever's in

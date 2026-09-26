@@ -279,3 +279,24 @@ table.truth { border-collapse: collapse; font-size: 0.8rem; min-width: 100%; }
 .plaque small { font-family: var(--type); font-size: 0.85rem; }
 .doors.shut .plaque { opacity: 1; }
 .doors.open .plaque { opacity: 0; transition: opacity 0.2s; }
+
+/* the killer's fuse box, the ghosts' house, pockets, and the ballots read out one by one */
+.card.cut summary { cursor: pointer; font-weight: 600; color: var(--red); }
+.card.cut[open] summary { margin-bottom: 0.5rem; }
+.card.haunt { background: #f1eef8; box-shadow: inset 0 0 0 1px #d8d0ec; }
+.big-emoji.sm { font-size: 1.4rem; }
+.picker.haunts { align-self: center; }
+.picker.haunts button.on { background: var(--gold-soft); box-shadow: inset 0 0 0 2px var(--gold); }
+.hauntmsg { align-items: center; background: #1d1a24; color: #e8e2f5; border-radius: 12px; padding: 0.4rem 0.6rem; animation: chill 1.2s var(--ease); }
+.hauntmsg p { margin: 0; }
+@keyframes chill { 0% { opacity: 0; filter: blur(6px); transform: scale(0.96); } 40% { opacity: 1; filter: blur(1px); } 100% { filter: none; } }
+.card.pockets { background: var(--gold-soft); }
+.card.pockets.hit { background: var(--red-soft); box-shadow: inset 0 0 0 1px rgba(179, 38, 30, 0.3); }
+.ballots { display: flex; flex-direction: column; gap: 0.35rem; width: 100%; max-width: 22rem; }
+.ballot { background: #fff; border-radius: 10px; padding: 0.45rem 0.7rem; box-shadow: var(--shadow), inset 0 0 0 1px var(--line); font-family: var(--type); }
+.ballot .arrow { color: var(--red); }
+#app > div > section.enter .ballot { animation: ballot 0.35s var(--ease) both; }
+#app > div > section.enter .verdict { animation: verdict 0.6s var(--ease) both; }
+@keyframes ballot { from { opacity: 0; transform: translateX(-18px) rotate(-3deg); } }
+@keyframes verdict { from { opacity: 0; transform: scale(1.35); } }
+@media (prefers-reduced-motion: reduce) { #app > div > section.enter .ballot, #app > div > section.enter .verdict, .hauntmsg { animation: none; } }

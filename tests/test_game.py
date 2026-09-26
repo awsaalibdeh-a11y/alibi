@@ -386,6 +386,77 @@ class Api(unittest.TestCase):
         self.c.post(url, json={**auth, "type": "leave_room"})
         self.assertEqual(g["phase"], "move", "everyone human has left the room")
 
+    def fixed_game(self):
+        """Ann, Ben and Cat against Kay the killer, all people, on a quiet day (no storms, no power cuts)."""
+        g = game.new_game()
+        a, b, c, k = (game.add_player(g, n) for n in ("Ann", "Ben", "Cat", "Kay"))
+        game.start(g)
+        for p in g["players"]:
+            p["role"] = "guest"
+        k["role"] = "killer"
+        game.new_day(g)
+        for beat in game.today(g)["beats"]:
+            beat.update(fx=None)
+        post = lambda p, **body: self.c.post(f"/api/game/{g['code']}", json={"pid": p["pid"], "token": p["token"], **body})
+        return g, (a, b, c, k), post
+
+    def test_the_killer_cuts_the_lights_once_a_day(self):
+        g, (a, b, c, k), post = self.fixed_game()
+        self.assertEqual(post(a, type="cut", room="kitchen").status_code, 409, "only the killer knows where the fuse box is")
+        self.assertEqual(post(k, type="cut", room="garden").status_code, 400)
+        v = post(k, type="cut", room="kitchen").get_json()
+        self.assertEqual(v["beat"]["fx"], "dark")
+        self.assertIn("Kitchen", v["beat"]["text"])
+        self.assertFalse(game.view(g, k)["canCut"])
+        self.assertEqual(post(k, type="cut", room="library").status_code, 400, "once a day")
+        g["carry"][k["pid"]] = "rope"
+        d = game.today(g)
+        d["moves"] = {k["pid"]: "kitchen", c["pid"]: "kitchen", a["pid"]: "library", b["pid"]: "library"}
+        game.resolve_move(g)
+        self.assertTrue(game.view(g, c)["here"]["dark"])
+        d["acts"] = {k["pid"]: {"strike": "dark"}}
+        game.resolve_room(g)
+        self.assertFalse(c["alive"], "struck in the dark")
+        self.assertEqual(d["kill"]["witnesses"], [])
+
+    def test_searching_pockets_once_a_game(self):
+        g, (a, b, c, k), post = self.fixed_game()
+        g["carry"][k["pid"]] = "kitchen knife"
+        game.set_phase(g, "talk", 60)
+        v = post(a, type="search", target=k["pid"]).get_json()
+        self.assertEqual(v["searches"], [{"by": "Ann", "target": "Kay", "found": "kitchen knife", "day": 1, "mine": True}])
+        self.assertTrue(v["me"]["searched"])
+        self.assertEqual(game.view(g, k)["searches"][0]["mine"], False, "Kay knows Ann looked")
+        self.assertEqual(game.view(g, b)["searches"], [], "nobody else does")
+        self.assertEqual(post(a, type="search", target=b["pid"]).status_code, 400, "once a game")
+        self.assertIsNone(post(b, type="search", target=c["pid"]).get_json()["searches"][0]["found"])
+
+    def test_a_ghost_haunts_a_room(self):
+        g, (a, b, c, k), post = self.fixed_game()
+        c["alive"] = False
+        d = game.today(g)
+        d["moves"] = {k["pid"]: "kitchen", a["pid"]: "library", b["pid"]: "library"}
+        game.resolve_move(g)
+        v = game.view(g, c)
+        self.assertEqual({x["room"]: x["people"] for x in v["house"]}["library"], ["Ann", "Ben"], "the dead see the whole house")
+        self.assertEqual(post(c, type="haunt", room="library", emoji="💩").status_code, 400)
+        post(c, type="haunt", room="library", emoji="🔪")
+        self.assertEqual(post(c, type="haunt", room="kitchen", emoji="👻").status_code, 400, "once an hour")
+        msg = game.view(g, a)["roomchat"][-1]
+        self.assertEqual((msg["text"], msg["name"], msg["haunt"]), ("🔪", "Ghost of Cat", True))
+        self.assertEqual(game.view(g, k)["roomchat"], [], "only that room feels it")
+        self.assertEqual(post(a, type="haunt", room="kitchen", emoji="👻").status_code, 409, "the living can't")
+
+    def test_the_ballots_are_read_out(self):
+        g, (a, b, c, k), post = self.fixed_game()
+        d = game.today(g)
+        game.set_phase(g, "vote", 30)
+        d["votes"] = {a["pid"]: k["pid"], b["pid"]: k["pid"], c["pid"]: "skip", k["pid"]: a["pid"]}
+        game.tally(g)
+        v = game.view(g, a)
+        self.assertEqual(v["ballots"], [{"from": "Ann", "to": "Kay"}, {"from": "Ben", "to": "Kay"}, {"from": "Cat", "to": "Skip"}, {"from": "Kay", "to": "Ann"}])
+        self.assertEqual(v["ejected"]["role"], "killer")
+
 
 if __name__ == "__main__":
     unittest.main()
