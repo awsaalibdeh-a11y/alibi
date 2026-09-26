@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Alibi · a murder mystery for your group</title>
+  <meta name="description" content="A new AI-written murder mystery every game. 1 to 4 players pass one phone, question suspects, search for clues and name the killer.">
+  <meta name="theme-color" content="#16120f">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='icon.svg') }}">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Special+Elite&family=Inter:wght@400;500;600;700;800&family=Playfair+Display:ital,wght@0,700;0,800;1,700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v={{ v }}">
+  <script defer src="{{ url_for('static', filename='app.js') }}?v={{ v }}"></script>
+</head>
+<body>
+  <main id="app" aria-live="polite"></main>
+  <div id="toast" class="toast" role="status" hidden></div>
+  <noscript><p style="padding:2rem;color:#eee">Alibi needs JavaScript.</p></noscript>
+</body>
+</html>
