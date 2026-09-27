@@ -527,6 +527,74 @@ class Api(unittest.TestCase):
         self.assertTrue(d["chat"][-1]["note"])
         self.assertTrue(k["noted"])
 
+    def test_the_detective_and_the_doctor(self):
+        for n, jobs in ((4, 1), (5, 2), (8, 2)):
+            g = game.new_game()
+            for _ in range(n):
+                game.add_bot(g)
+            game.start(g)
+            got = [p for p in g["players"] if p.get("job")]
+            self.assertEqual(len(got), jobs)
+            self.assertTrue(all(p["role"] == "guest" for p in got), "the killer never has a job")
+        g, (a, b, c, k), post = self.fixed_game()
+        a["job"], b["job"] = "detective", "doctor"
+        d = game.today(g)
+        g["carry"][k["pid"]] = "rope"
+        post(b, type="guard", target=c["pid"])
+        self.assertEqual(post(b, type="guard", target=a["pid"]).status_code, 400, "one patient a day")
+        self.assertEqual(game.view(g, b)["guard"], "Cat")
+        # the detective alone with the killer; the killer strikes the doctor's patient in front of nobody
+        d["moves"] = {a["pid"]: "library", k["pid"]: "library", b["pid"]: "kitchen", c["pid"]: "kitchen"}
+        game.resolve_move(g)
+        post(a, type="do", act="act", investigate=k["pid"])
+        game.resolve_room(g)
+        self.assertEqual(game.view(g, a)["findings"], [{"target": "Kay", "day": 1, "hour": "9 AM", "killer": True}])
+        self.assertIn("You investigated Kay: they ARE a killer", " ".join(game.my_day(g, a, d)[-1]["events"]))
+        self.assertIn("studying you", " ".join(game.my_day(g, k, d)[-1]["events"]), "the killer gets a hint")
+        self.assertGreaterEqual(game.suspicion(g, a)[k["pid"]], 20)
+        d["moves"] = {k["pid"]: "garden", c["pid"]: "garden", a["pid"]: "library", b["pid"]: "library"}
+        game.resolve_move(g)
+        post(a, type="do", act="act", investigate=b["pid"])
+        d["acts"][k["pid"]] = {"act": "x", "strike": c["pid"]}
+        game.resolve_room(g)
+        self.assertTrue(c["alive"], "the Doctor's patient lives")
+        self.assertIsNone(d["kill"])
+        self.assertEqual(len(g["findings"]), 1, "once a day")
+        self.assertIn("attacked you from behind", " ".join(game.my_day(g, c, d)[-1]["events"]))
+        self.assertIn("lived, thanks to you", " ".join(game.my_day(g, b, d)[-1]["events"]))
+
+    def test_the_bell_calls_the_meeting(self):
+        g, (a, b, c, k), post = self.fixed_game()
+        self.assertEqual(post(a, type="bell").status_code, 400, "not at 9 AM")
+        d = game.today(g)
+        d["moves"] = {q["pid"]: "library" for q in (a, b, c, k)}
+        game.resolve_move(g)
+        game.resolve_room(g)
+        self.assertEqual(g["phase"], "move")
+        v = post(a, type="bell").get_json()
+        self.assertEqual(v["phase"], "quiet")
+        self.assertTrue(v["chat"][-1]["bell"])
+        self.assertTrue(a["belled"])
+
+    def test_bots_only_spend_ai_when_someone_is_watching(self):
+        g, (a, b, c, k), post = self.fixed_game()
+        with mock.patch.object(game, "_ask_json", return_value={"say": "AI line"}) as ask:
+            os.environ["OPENAI_API_KEY"] = "test"
+            try:
+                a["seen"] = game.now()
+                self.assertEqual(game._bot_reply(g, "p", "plain"), "AI line")
+                a["seen"] = game.now() - 120
+                for q in (b, c, k):
+                    q["seen"] = game.now()
+                    q["bot"] = True
+                self.assertEqual(game._bot_reply(g, "p", "plain"), "plain", "nobody watching: no AI")
+                a["seen"] = game.now()
+                g["ai_calls"] = game.GAME_LIMIT
+                self.assertEqual(game._bot_reply(g, "p", "plain"), "plain", "this game has had its share")
+            finally:
+                os.environ.pop("OPENAI_API_KEY", None)
+        self.assertEqual(ask.call_count, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

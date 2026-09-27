@@ -329,3 +329,30 @@ table.truth { border-collapse: collapse; font-size: 0.8rem; min-width: 100%; }
 .jaccuse { font-family: var(--serif); font-weight: 800; font-size: 1.3rem; color: var(--red); letter-spacing: 0.03em; }
 @keyframes shake { 0%, 100% { transform: none; } 20% { transform: translateX(-6px) rotate(-1deg); } 40% { transform: translateX(5px) rotate(1deg); } 60% { transform: translateX(-3px); } 80% { transform: translateX(2px); } }
 @media (prefers-reduced-motion: reduce) { #app > div > section.enter .gazette, .accusemsg.fresh { animation: none; } }
+
+/* the Detective and the Doctor, the bell, the notebook, the replay */
+.jobcard { display: flex; gap: 0.6rem; align-items: flex-start; text-align: left; margin-top: 0.6rem; padding: 0.55rem 0.7rem; border-radius: 12px; background: rgba(255, 255, 255, 0.7); box-shadow: inset 0 0 0 1px var(--line); }
+.jobcard p { margin: 0.15rem 0 0; }
+.job-emoji { font-size: 1.8rem; line-height: 1; }
+.card.jobpanel { background: var(--blue-soft); }
+.card.saved { background: var(--ok-soft); }
+.optbtn.detect { box-shadow: inset 0 0 0 1px #3f8fc9; }
+.optbtn.detect.on { background: #dcebfa; box-shadow: inset 0 0 0 2px #3f8fc9; }
+.btn.bell { color: var(--red); }
+.bellmsg { align-items: center; background: var(--red-soft); border-radius: 10px; padding: 0.4rem 0.6rem; }
+.bellmsg p { margin: 0; }
+.notebook-row .input.sm { margin-top: 0.3rem; padding: 0.35rem 0.55rem; font-size: 0.85rem; }
+.notebook-row.gone-row { opacity: 0.55; }
+.mark { width: 2.6rem; height: 2.6rem; border: 0; border-radius: 12px; background: var(--bg-2); box-shadow: inset 0 0 0 1px var(--line); font-size: 1.3rem; flex: none; }
+.house { display: grid; grid-template-columns: 1fr 1fr; gap: 0.45rem; }
+.hroom { background: var(--bg-2); border-radius: 12px; padding: 0.45rem; min-height: 5.2rem; box-shadow: inset 0 0 0 1px var(--line); transition: background 0.3s; }
+.hroom.murder { background: var(--red-soft); box-shadow: inset 0 0 0 2px var(--red); }
+.hroom p { margin: 0.2rem 0 0; }
+.hname { font-weight: 700; font-size: 0.85rem; }
+.hpeople { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.3rem; }
+.hp { display: flex; flex-direction: column; align-items: center; font-size: 0.68rem; animation: rise 0.35s var(--ease); }
+.scrub { display: flex; gap: 3px; }
+.scrub button { flex: 1; height: 0.5rem; border: 0; border-radius: 99px; background: var(--bg-3); padding: 0; }
+.scrub button.done { background: var(--gold-soft); }
+.scrub button.on { background: var(--gold); }
+@media (prefers-reduced-motion: reduce) { .hp { animation: none; } }
