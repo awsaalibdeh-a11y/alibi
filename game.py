@@ -202,7 +202,9 @@ def start(g):
     guests = [q for q in g["players"] if q["role"] != "killer"]
     for p in g["players"]:
         p.update(job=None, belled=False)
-    for job in (["detective", "doctor"] if n >= 5 else [random.choice(["detective", "doctor"])]):
+    for job in jobs_for(g, n):
+        if not guests:
+            break
         p = random.choices(guests, weights=[1.0 if q["bot"] else 2.0 for q in guests])[0]   # people get the fun jobs more often
         guests.remove(p)
         p["job"] = job
@@ -215,6 +217,8 @@ def start(g):
 # ---------- secret missions: a little something of your own to do, for bragging rights at the end ----------
 def pick_mission(g, p):
     rooms = room_ids(g)
+    if p.get("job") == "jester":
+        return {"kind": "jester"}
     if p["role"] == "killer":
         return random.choice([{"kind": "kill_in", "room": random.choice(rooms)}, {"kind": "clean"}])
     others = [q for q in g["players"] if q["pid"] != p["pid"]]
@@ -246,6 +250,8 @@ def mission(g, p):
         out = {"text": f"Send a private message to {m['n']} different people", **count(len({x["to"] for x in g["dms"] if x["from"] == pid}), m["n"])}
     elif k == "survive":
         out = {"text": "Still be alive when the weekend ends", "prog": "alive" if p["alive"] else "failed", "done": over and p["alive"], "failed": not p["alive"]}
+    elif k == "jester":
+        out = {"text": "Get yourself voted out", "prog": "done!" if p.get("ejected") else "not yet", "done": bool(p.get("ejected")), "failed": not p["alive"] and not p.get("ejected")}
     elif k == "kill_in":
         hit = any(kk["killer"] == pid and kk["room"] == m["room"] for d in g["days"] for kk in d.get("kills") or [])
         out = {"text": f"Commit a murder in the {ROOM[m['room']]['name']}", "prog": "done" if hit else "not yet", "done": hit}
@@ -309,7 +315,17 @@ def beat(g, h=None):
 
 
 JOBS = {"detective": ("🕵️", "The Detective", "Once a day, question someone when the two of you are alone in a room (lights on): you'll learn if they're a killer. Careful: if they are, you're alone with them."),
-        "doctor": ("🩺", "The Doctor", "Once a day, pick a patient to watch over: if the killer strikes them that day, they survive. You also read the body: the exact weapon.")}
+        "doctor": ("🩺", "The Doctor", "Once a day, pick a patient to watch over: if the killer strikes them that day, they survive. You also read the body: the exact weapon."),
+        "jester": ("🃏", "The Jester", "You're not the killer, and you don't care who is. You win if the others vote YOU out. Act suspicious… but not too suspicious."),
+        "medium": ("🔮", "The Medium", "You can hear the dead: you read the ghosts' chat, and once a day you hold a séance to ask them a question. Ghosts answer in riddles.")}
+
+
+def jobs_for(g, n):
+    """Which special roles this game has: the host can switch any off in the lobby; small games get fewer."""
+    on = set(g.get("roles", JOBS))
+    care = [j for j in ("detective", "doctor") if j in on]
+    jobs = care if n >= 5 else care[:1] if len(care) < 2 else [random.choice(care)]
+    return jobs + [j for j, need in (("jester", 5), ("medium", 6)) if j in on and n >= need]
 
 
 def guarded(g, pid):
@@ -589,7 +605,10 @@ def begin_talk(g):
     if bots:                                                           # somebody always breaks the silence: whoever saw it or found the body, if a bot did
         d["bot_plan"].append({"at": t0 + random.uniform(0.5, 1.5), "pid": (eyes or finders or [random.choice(bots)])[0]["pid"], "kind": "open"})
     for p in bots:                                                     # then everyone posts their day, and chips in through the meeting
-        d["bot_plan"].append({"at": t0 + random.uniform(2, 6), "pid": p["pid"], "kind": "claim"})
+        if not (p.get("job") == "jester" and random.random() < 0.5):   # a jester "forgets" to, now and then
+            d["bot_plan"].append({"at": t0 + random.uniform(2, 6), "pid": p["pid"], "kind": "claim"})
+        if p.get("job") == "medium" and any(not q["alive"] for q in g["players"]):
+            d["bot_plan"].append({"at": t0 + random.uniform(10, 30), "pid": p["pid"], "kind": "seance"})
         for _ in range(random.choice([1, 2])):
             d["bot_plan"].append({"at": t0 + random.uniform(8, T["talk"] - 30), "pid": p["pid"], "kind": "talk"})
         if p["role"] == "killer" and d["kill"] and not p.get("noted") and random.random() < 0.3:
@@ -634,6 +653,8 @@ def tally(g):
         p["alive"] = False
         p["ejected"] = True
         d["ejected"] = out
+        if p.get("job") == "jester":
+            p["jester_won"] = True                                    # exactly what they wanted
     set_phase(g, "result", T["result"])
 
 
@@ -801,7 +822,9 @@ def view(g, p):
             e["readyToVote"] = q["pid"] in d["ready"]
         pub.append(e)
     v = {"code": g["code"], "public": g["public"], "v": g["v"], "now": now(), "phase": g["phase"], "deadline": g["deadline"], "start_at": g["start_at"],
-         "day": g["day"], "hour": g["hour"], "hours": HOURS, "rooms": rooms_of(g), "showdown": bool(today(g) and today(g).get("showdown")), "players": pub, "winner": g["winner"], "prologue": PROLOGUE,
+         "day": g["day"], "hour": g["hour"], "roleInfo": {j: list(x) for j, x in JOBS.items()}, "rolesOn": list(g.get("roles", JOBS)),
+         "cast": {"killers": sum(q.get("role") == "killer" for q in g["players"]), "jobs": [j for j in JOBS if any(q.get("job") == j for q in g["players"])]}
+         if g["phase"] != "lobby" else None, "hours": HOURS, "rooms": rooms_of(g), "showdown": bool(today(g) and today(g).get("showdown")), "players": pub, "winner": g["winner"], "prologue": PROLOGUE,
          "me": {"pid": p["pid"], "name": p["name"], "role": p["role"], "alive": p["alive"], "host": p["pid"] == g["host"], "carrying": g["carry"].get(p["pid"]),
                 "ejected": p.get("ejected", False), "char": p.get("char"), "voice": p.get("voice", False), "searched": p.get("searched", False),
                 "noted": p.get("noted", False), "mission": mission(g, p) if g["phase"] != "lobby" else None,
@@ -819,7 +842,8 @@ def view(g, p):
         v["beat"] = beat(g) if g["phase"] in ("move", "room") else None
         v["myvote"] = d["votes"].get(p["pid"])
         v["readyToVote"] = p["pid"] in d["ready"]
-        v["chat"] = [m for m in d["chat"] if dead or over or not m.get("ghost")][-80:]
+        medium = p.get("job") == "medium"                             # the Medium hears the dead
+        v["chat"] = [m for m in d["chat"] if dead or over or medium or not m.get("ghost")][-80:]
         if g["phase"] in ("move", "room") and g["hour"] == 0 and d.get("gazette"):
             v["gazette"] = d["gazette"]
         if g["phase"] in ("talk", "vote"):
@@ -827,6 +851,8 @@ def view(g, p):
         if p.get("job") == "detective":
             v["findings"] = [{"target": name_of(g, f["target"]), "day": f["day"], "hour": HOURS[f["hour"]], "killer": f["killer"]} for f in g.get("findings", []) if f["by"] == p["pid"]]
             v["checked"] = p["pid"] in d.get("checked", {})
+        if p.get("job") == "medium":
+            v["canSeance"] = p["alive"] and p["pid"] not in d.get("seances", ()) and any(not q["alive"] for q in g["players"])
         if p.get("job") == "doctor":
             v["guard"] = name_of(g, d["guard"][p["pid"]]) if p["pid"] in d.get("guard", {}) else None
         v["canBell"] = p["alive"] and not p.get("belled") and g["phase"] == "move" and g["hour"] > 0 and not d["showdown"]
@@ -868,7 +894,7 @@ def view(g, p):
         if g["phase"] in ("result", "over") and "tally" in d:
             v["tally"] = {("skip" if k == "skip" else name_of(g, k)): n for k, n in d["tally"].items()}
             ej = d.get("ejected")
-            v["ejected"] = {"name": name_of(g, ej), "role": player(g, ej)["role"]} if ej else None
+            v["ejected"] = {"name": name_of(g, ej), "role": player(g, ej)["role"], "jester": bool(player(g, ej).get("jester_won"))} if ej else None
             v["ballots"] = [{"from": name_of(g, q), "to": "Skip" if t == "skip" else name_of(g, t)} for q, t in d["votes"].items() if player(g, q)]
     if over:
         v["truth"] = truth(g)
@@ -933,6 +959,16 @@ def awards(g):
     if haunts:
         spook = max(haunts, key=haunts.get)
         out.append({"emoji": "👻", "title": "Poltergeist", "name": name_of(g, spook), "detail": f"haunted {s(haunts[spook], 'room')}"})
+    for q in [q for q in g["players"] if q.get("jester_won")]:
+        out.insert(0, {"emoji": "🃏", "title": "The Jester wins!", "name": q["name"], "detail": "fooled you all into voting them out"})
+    right = {}
+    for d in g["days"]:
+        for voter, t in d["votes"].items():
+            if player(g, t) and player(g, t)["role"] == "killer":
+                right[voter] = right.get(voter, 0) + 1
+    if right:
+        nose = max(right, key=right.get)
+        out.append({"emoji": "👃", "title": "Sharpest Nose", "name": name_of(g, nose), "detail": f"voted for a killer {s(right[nose], 'time')}"})
     done = [q for q in g["players"] if (mission(g, q) or {}).get("done")]
     if done:
         out.append({"emoji": "🎯", "title": "Mission accomplished", "name": ", ".join(q["name"] for q in done), "detail": "did their secret mission"})
@@ -1187,6 +1223,11 @@ def bot_speak(g, pid, kind):
             return note(g, p, random.choice([f"I saw {mark['name']} slip out of the {ROOM[k['room']]['name']} around {HOURS[k['hour']]}. Say nothing.",
                                              f"Ask {mark['name']} why their hands were shaking at {HOURS[k['hour']]}.",
                                              f"{mark['name']} is not who they say they are."]))
+        if kind == "seance":
+            return seance(g, p, random.choice(["Spirits, who did this to you?", "Is anyone there? Tell me who the killer is.", "Speak to me. Where was the killer?"]))
+        if kind == "talk" and p.get("job") == "jester" and random.random() < 0.5:
+            return say(g, p, random.choice(["Honestly? Maybe it was me. Who knows 😏", "I'm not saying I did it… but I'm not saying I didn't.",
+                                            "Vote me out, I dare you.", "I had the rope for, uh, gardening reasons.", "Why is everyone looking at me? …Keep looking."]))
         s = suspicion(g, p)
         top = max(s, key=s.get) if s else None
         if kind == "talk" and top and s[top] >= BOT_ACCUSE_AT and pid not in d.get("accused", {}) and random.random() < 0.5:
@@ -1309,6 +1350,47 @@ def note(g, p, text):
     d["chat"].append({"id": secrets.token_hex(3), "pid": "note", "name": "An anonymous note", "color": "#7d7466", "bot": False, "text": text, "t": now(), "ghost": False, "note": True})
     typing_done(g, p["pid"])
     bump(g)
+
+
+def seance(g, p, text):
+    """The Medium calls out to the dead, once a day. Dead bots answer with a riddle about the truth."""
+    d = today(g)
+    d.setdefault("seances", set()).add(p["pid"])
+    d["chat"].append({"id": secrets.token_hex(3), "pid": "medium", "name": "The Medium", "color": "#8d6be0", "bot": False, "text": text, "t": now(),
+                      "ghost": True, "medium": True})
+    typing_done(g, p["pid"])
+    bump(g)
+    for q in random.sample([q for q in g["players"] if q["bot"] and not q["alive"]], min(2, sum(1 for q in g["players"] if q["bot"] and not q["alive"]))):
+        typing(g, q["pid"], ("meet",))
+        _spawn(bot_spirit_reply, g, q["pid"])
+
+
+def spirit_hint(g):
+    """Something true about a killer, in a riddle: where they were at some hour, or two coats one of which is theirs."""
+    killers = [q for q in living(g) if q["role"] == "killer"] or [q for q in g["players"] if q["role"] == "killer"]
+    k = random.choice(killers)
+    seen = [(i, hr["where"][k["pid"]]) for d in g["days"][-1:] for i, hr in enumerate(d["hours"]) if k["pid"] in hr["where"]]
+    if seen and random.random() < 0.7:
+        i, room = random.choice(seen)
+        return f"At {HOURS[i]}… the one you seek stood in the {ROOM[room]['name']}…"
+    other = random.choice([q for q in g["players"] if q["pid"] != k["pid"]])
+    pair = random.sample([color_name(g, k["pid"]), color_name(g, other["pid"])], 2)
+    return f"A coat of {pair[0]}… or was it {pair[1]}… stained dark…"
+
+
+def bot_spirit_reply(g, pid):
+    with LOCK:
+        p, d = player(g, pid), today(g)
+        if not p or p["alive"] or not d:
+            return typing_done(g, pid)
+        hint = spirit_hint(g)
+        prompt = (f"{ghost_brief(g, p)}\nThe Medium, a living guest, is holding a séance and asking the dead for help. Answer as a ghost in one eerie, "
+                  f"cryptic line. Never say the killer's name. Work in this true clue: {hint} {STYLE}")
+    text = _bot_reply(g, prompt, hint)
+    with LOCK:
+        if today(g) is d:
+            say(g, p, text)
+        typing_done(g, pid)
 
 
 def accuse(g, p, target):
@@ -1603,6 +1685,23 @@ def act(code):
             if not text:
                 return _err("Write something.")
             note(g, p, text)
+        elif kind == "seance" and g["phase"] == "talk" and p["alive"] and p.get("job") == "medium":
+            text = _s(body.get("text"), 200)
+            if p["pid"] in d.get("seances", ()):
+                return _err("One séance a day: the spirits need their rest.")
+            if not any(not q["alive"] for q in g["players"]):
+                return _err("Nobody has died yet. The other side is quiet… for now.")
+            if not text:
+                return _err("Ask the spirits something.")
+            seance(g, p, text)
+        elif kind == "roles" and g["phase"] == "lobby" and p["pid"] == g["host"]:
+            role = body.get("role")
+            if role not in JOBS:
+                return _err("No such role.")
+            on = set(g.get("roles", JOBS))
+            on.add(role) if body.get("on") else on.discard(role)
+            g["roles"] = [j for j in JOBS if j in on]
+            bump(g)
         elif kind == "accuse" and g["phase"] == "talk" and p["alive"]:
             target = player(g, body.get("target"))
             if p["pid"] in d.get("accused", {}):

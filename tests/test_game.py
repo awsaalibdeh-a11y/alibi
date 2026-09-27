@@ -528,7 +528,7 @@ class Api(unittest.TestCase):
         self.assertTrue(k["noted"])
 
     def test_the_detective_and_the_doctor(self):
-        for n, jobs in ((4, 1), (5, 2), (8, 2)):
+        for n, jobs in ((4, 1), (5, 3), (6, 4), (8, 4)):
             g = game.new_game()
             for _ in range(n):
                 game.add_bot(g)
@@ -594,6 +594,54 @@ class Api(unittest.TestCase):
             finally:
                 os.environ.pop("OPENAI_API_KEY", None)
         self.assertEqual(ask.call_count, 1)
+
+    def test_the_host_picks_the_roles(self):
+        g = game.new_game()
+        host = game.add_player(g, "Ann")
+        g["host"] = host["pid"]
+        for _ in range(5):
+            game.add_bot(g)
+        post = lambda **body: self.c.post(f"/api/game/{g['code']}", json={"pid": host["pid"], "token": host["token"], **body})
+        post(type="roles", role="jester", on=False)
+        post(type="roles", role="doctor", on=False)
+        self.assertEqual(game.view(g, host)["rolesOn"], ["detective", "medium"])
+        game.start(g)
+        self.assertEqual(sorted(p["job"] for p in g["players"] if p.get("job")), ["detective", "medium"])
+        self.assertEqual(game.view(g, host)["cast"], {"killers": 1, "jobs": ["detective", "medium"]})
+
+    def test_the_jester_wins_by_being_voted_out(self):
+        g, (a, b, c, k), post = self.fixed_game()
+        b["job"] = "jester"
+        b["mission"] = game.pick_mission(g, b)
+        game.set_phase(g, "vote", 30)
+        game.today(g)["votes"] = {a["pid"]: b["pid"], c["pid"]: b["pid"], k["pid"]: b["pid"]}
+        game.tally(g)
+        v = game.view(g, a)
+        self.assertEqual(v["ejected"], {"name": "Ben", "role": "guest", "jester": True})
+        self.assertTrue(game.mission(g, b)["done"])
+        self.assertEqual(game.awards(g)[0]["title"], "The Jester wins!")
+        self.assertEqual(g["phase"], "result", "the game goes on for everyone else")
+
+    def test_the_medium_hears_the_dead(self):
+        g, (a, b, c, k), post = self.fixed_game()
+        a["job"] = "medium"
+        c["bot"], c["alive"] = True, False
+        c["killed"] = {"day": 1, "hour": 0, "room": "garden", "by": k["pid"], "weapon": "rope"}
+        d = game.today(g)
+        d["moves"] = {a["pid"]: "library", b["pid"]: "library", k["pid"]: "kitchen"}
+        game.resolve_move(g)
+        game.resolve_room(g)
+        game.set_phase(g, "talk", 60)
+        self.assertEqual(post(b, type="seance", text="hello?").status_code, 409, "only the Medium")
+        with self.sync():
+            v = post(a, type="seance", text="Who did it?").get_json()
+        said = [m for m in v["chat"] if m.get("ghost")]
+        self.assertEqual(said[0]["name"], "The Medium")
+        self.assertEqual(said[-1]["pid"], c["pid"], "a dead bot answers")
+        self.assertTrue("Kitchen" in said[-1]["text"] or "coat" in said[-1]["text"], said[-1]["text"])
+        self.assertNotIn("Kay", said[-1]["text"], "in riddles, never the name")
+        self.assertEqual([m for m in game.view(g, b)["chat"] if m.get("ghost")], [], "the living don't hear it")
+        self.assertEqual(post(a, type="seance", text="again").status_code, 400, "once a day")
 
 
 if __name__ == "__main__":
