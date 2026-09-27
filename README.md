@@ -44,7 +44,7 @@ the empty chairs.
 - **The final showdown.** When the killers catch up with the guests there's no instant loss: one last day with no
   meeting, where the killer can strike every hour and any guest alive at dusk wins it for the guests.
 - **Talk and vote.** Two and a half minutes of chat: share your day (the killer can lie about theirs), argue, then vote someone
-  out. Catch every killer to win; if the killers ever match the rest, they win. The dead become ghosts who see
+  out (most votes, and at least half the room; bots always vote, on a hunch if nothing stands out). Catch every killer to win; if the killers ever match the rest, they win. The dead become ghosts who see
   everything and can only talk to each other.
 - **Ways to play:** start a game and send the family the code or link (it starts when everyone taps Ready), find a
   game online (a public queue that starts after 30 seconds, topped up with bots), or play with bots.

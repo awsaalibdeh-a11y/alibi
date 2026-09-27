@@ -88,6 +88,9 @@ HAUNTS = ["👻", "🔪", "👀", "🕯️", "❄️", "❓"]                   
 HUMAN_KILLER_WEIGHT = 2.5                                            # people get the knife more often than bots do
 BOT_LIAR_SKILL = 0.25                                                 # how often a killer bot tells a lie nobody can catch
 DETECTIVE_EAGERNESS = 0.5                                             # how often a bot detective investigates when it can
+LOOK_WEIGHT = 3.0                                                     # suspicion for having been in the murder room, spotted by looking around
+SURE_AT = 6                                                           # how much suspicion makes a bot vote on it, not on a hunch
+VOTE_DIV = 2                                                          # being voted out takes at least 1/VOTE_DIV of the living's votes
 CLUE_CHANCE = 0.4                                                     # how often a victim dies clutching a clue
 CLUE_WEIGHT = 0.5                                                     # how much a bot makes of it
 BOT_ACCUSE_AT = 5                                                     # how sure a bot has to be to say J'accuse out loud
@@ -678,7 +681,8 @@ def tally(g):
             counts[target] = counts.get(target, 0) + 1
     ranked = sorted(counts.items(), key=lambda kv: -kv[1])
     out = None
-    if ranked and ranked[0][0] != "skip" and (len(ranked) == 1 or ranked[0][1] > ranked[1][1]):
+    need = max(2, -(-len(living(g)) // VOTE_DIV))                      # scattered hunches don't throw anyone out: it takes a real share of the room
+    if ranked and ranked[0][0] != "skip" and ranked[0][1] >= need and (len(ranked) == 1 or ranked[0][1] > ranked[1][1]):
         out = ranked[0][0]
     d["tally"] = counts
     if out:
@@ -738,7 +742,7 @@ def suspicion(g, me):
         if nxt and nxt["acts"].get(me["pid"], {}).get("act") == "look" and nxt["where"].get(me["pid"]) == kk["room"]:
             for q, r in d["hours"][kk["hour"]]["where"].items():       # looked around the murder room: who'd been in it
                 if r == kk["room"] and q in score:
-                    score[q] += 3
+                    score[q] += LOOK_WEIGHT
     told = {q: 0 for q in score}
     for m in g["dms"][-40:]:                                           # what people whispered to me
         if m["to"] != me["pid"] or m["from"] == me["pid"] or not player(g, m["from"])["alive"]:
@@ -767,8 +771,9 @@ def bot_vote(g, p):
     if p["role"] == "killer":
         s = {q: v for q, v in s.items() if player(g, q)["role"] != "killer"} or s
         return max(s, key=lambda q: s[q] + random.random())
-    best = max(s, key=lambda q: s[q] + random.random() * 1.0)          # bots don't all land on the same name
-    return best if s[best] >= 2 else "skip"
+    if max(s.values()) >= SURE_AT:                                     # a real suspicion: vote on it (jitter so bots don't all agree)
+        return max(s, key=lambda q: s[q] + random.random())
+    return random.choice(list(s))                                      # unsure: never a skip, just a hunch
 
 
 # ---------- what each phone may see ----------
@@ -1072,6 +1077,9 @@ def tick(g):
                 typing(g, plan["pid"], ("meet",))
             threading.Thread(target=bot_speak, args=(g, plan["pid"], plan["kind"]), daemon=True).start()
         if t >= g["deadline"] or all(p["pid"] in d["ready"] for p in humans(g, alive_only=True)):
+            for plan in [x for x in d["bot_plan"] if x["kind"] == "claim" and not x.get("done")]:
+                plan["done"] = True                                    # cut short: every bot still gets its day on the record first
+                bot_speak(g, plan["pid"], "claim")
             d["vote_plan"] = [{"at": t + random.uniform(1, 8), "pid": p["pid"]} for p in living(g) if p["bot"]]
             set_phase(g, "vote", T["vote"])
         return

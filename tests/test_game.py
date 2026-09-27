@@ -239,6 +239,9 @@ class Rules(unittest.TestCase):
         d = game.today(g)
         d["votes"] = {ps[0]["pid"]: ps[1]["pid"], ps[2]["pid"]: ps[1]["pid"], ps[3]["pid"]: "skip"}
         game.tally(g)
+        self.assertTrue(ps[1]["alive"], "2 of 5 isn't enough: it takes half the room")
+        d["votes"][ps[4]["pid"]] = ps[1]["pid"]
+        game.tally(g)
         self.assertFalse(ps[1]["alive"])
         game.new_day(g)
         d = game.today(g)
@@ -676,6 +679,23 @@ class Api(unittest.TestCase):
         url, auth = f"/api/game/{host['code']}", {"pid": host["pid"], "token": host["token"]}
         v = self.c.post(url, json={**auth, "type": "want", "want": "killer"}).get_json()
         self.assertEqual((v["me"]["perk"], v["me"]["want"]), (True, "killer"))
+
+    def test_rushing_the_vote_still_gets_bots_talking_and_voting(self):
+        g = game.new_game()
+        me = game.add_player(g, "Ann")
+        for _ in range(4):
+            game.add_bot(g)
+        game.start(g)
+        game.new_day(g)
+        game.begin_talk(g)
+        url, auth = f"/api/game/{g['code']}", {"pid": me["pid"], "token": me["token"]}
+        with self.sync():
+            self.c.post(url, json={**auth, "type": "votenow"})
+        d = game.today(g)
+        self.assertEqual(g["phase"], "vote")
+        self.assertEqual(set(d["claims"]), {p["pid"] for p in g["players"] if p["bot"]}, "every bot shared its day")
+        game.bot_votes(g)
+        self.assertNotIn("skip", [v for q, v in d["votes"].items() if game.player(g, q)["bot"]], "bots never skip")
 
 
 if __name__ == "__main__":

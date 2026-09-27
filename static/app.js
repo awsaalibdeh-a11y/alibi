@@ -858,7 +858,7 @@ function vote() {
   const opt = (target, ...kids) => h("button", { class: "pickbtn" + (mine === target ? " on" : ""), type: "button", disabled: !S.me.alive, onClick: () => act("vote", { target }) }, ...kids);
   return h("section", { class: "stack" }, bar(`Day ${S.day} · vote`, timer(S.deadline)), ghostBanner(),
     h("h1", { class: "h2" }, "Who is the killer?"),
-    h("p", { class: "muted small" }, `${alive.filter((p) => p.voted).length} of ${alive.length} have voted. Most votes is out; a tie means nobody.`),
+    h("p", { class: "muted small" }, `${alive.filter((p) => p.voted).length} of ${alive.length} have voted. Most votes is out, if it's at least ${Math.max(2, Math.ceil(alive.length / 2))}; a tie means nobody.`),
     h("div", { class: "pick" }, alive.filter((p) => p.pid !== S.me.pid).map((p) => opt(p.pid, face(p, "sm"), h("span", {}, h("b", {}, p.name), h("small", { class: "muted" }, ` ${p.char?.title || ""}`), p.voted ? h("small", { class: "muted" }, " · voted") : null))),
       opt("skip", h("span", { class: "face sm skip" }, "–"), h("b", {}, "Skip: not sure yet"))),
     h("details", { class: "card" }, h("summary", {}, "Evidence"), bodyCard(true), dayLog()));
