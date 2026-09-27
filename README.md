@@ -63,8 +63,8 @@ python app.py            # http://127.0.0.1:5085
 ```
 
 `OPENAI_API_KEY` (a local `.env`, or the host's environment) lets the bots talk with AI; without it they use plain
-lines. Optional: `OPENAI_MODEL` (default gpt-5-mini, for quick replies; falls back to the cheaper gpt-5-nano if the key can't use it),
-`OPENAI_REASONING_EFFORT` (default minimal), `AI_DAILY_LIMIT` (calls a day, default 1500), `AI_GAME_LIMIT` (calls a
+lines. Optional: `OPENAI_MODEL` (default gpt-4o-mini, cheap and quick; falls back to gpt-4.1-mini if the key can't use it),
+`OPENAI_REASONING_EFFORT` (default minimal, only for gpt-5 and o-series models), `AI_DAILY_LIMIT` (calls a day, default 1500), `AI_GAME_LIMIT` (calls a
 game, default 60).
 
 To keep the bill small, bots only use the AI while a person is actually playing (a phone checked in within 40 seconds);

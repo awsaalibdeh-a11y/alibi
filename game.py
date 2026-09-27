@@ -1338,8 +1338,8 @@ def dm(g, p, to, text):
 
 
 # ---------- AI ----------
-MODEL = os.environ.get("OPENAI_MODEL", "gpt-5-mini")                 # a small model: bots answer in a couple of seconds
-FALLBACK_MODEL = "gpt-5-nano"                                          # never fall back to a pricier model
+MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")                # small, cheap, quick, and no hidden reasoning tokens to pay for
+FALLBACK_MODEL = "gpt-4.1-mini"                                        # if the key can't use it: another small model, never a pricier one
 EFFORT = os.environ.get("OPENAI_REASONING_EFFORT", "minimal")
 DAILY_LIMIT = int(os.environ.get("AI_DAILY_LIMIT", "1500"))
 GAME_LIMIT = int(os.environ.get("AI_GAME_LIMIT", "60"))                 # after this many AI lines in one game, bots use plain lines
