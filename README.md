@@ -13,6 +13,25 @@ the empty chairs.
 - **You're the killer more often than a bot is**, when you play with bots.
 - **The killer** (two in a game of 7 or 8) strikes when they are alone with someone and already carrying a weapon.
   Walk into that room later and you find the body; otherwise it's found at dusk.
+- **The Detective and the Doctor.** From five guests there's one of each (with four, one or the other), secretly, and
+  people get these jobs more often than bots. The Detective questions one person a day, but only when the two of them are
+  alone in a room with the lights on: they learn whether that person is a killer (and a killer feels someone studying
+  them). The Doctor picks a patient each day: if the killer strikes them, they survive (without seeing who did it), and
+  the Doctor's autopsy names the exact weapon.
+- **🔔 The emergency bell.** Once a game, from 11 AM, anyone can ring it and call the meeting at once.
+- **📝 A notebook** in the meeting: mark each guest ✅ ⚠️ 🔪 and jot notes (kept on your phone only).
+- **🎬 Replay** at the end: the whole weekend on a map of the house, hour by hour.
+- **Tricks up everyone's sleeve.** The killer can cut the lights in one room once a day (everyone sees them go, nobody
+  sees who's inside). Every guest can search one person's pockets once a game, during the meeting: you see what they're
+  carrying, and they know you looked. Ghosts see the whole house and can rattle one room an hour with a sign (👻 🔪 👀…).
+- **The ballots are read out** one by one before the verdict lands.
+- **Secret missions.** Everyone gets a little private goal ("spend 3 hours in the Library", "be in a room with Theo
+  twice", the killer's "commit a murder in the Study"…), shown with your role and scored at the end.
+- **Dying clues.** Sometimes the victim is found clutching threads of three coats' colours: one of them is the killer's.
+- **J'accuse!** Once a meeting, point at someone in front of everyone (bots answer back, and accuse people too).
+  **Anonymous notes:** once a game, slip a note into the meeting that nobody can trace (killer bots use it to frame).
+- **The Wrenmoor Gazette** greets every new morning with yesterday's headlines.
+- **More awards** at the end: Eagle Eye, Pickpocket, Poltergeist, Mission accomplished.
 - **Look back.** You only know what you saw yourself (who was with you, who took what). Everyone sees where the body
   lay, roughly when and how they died, and what's missing from the house.
 - **Private messages** to anyone (bots answer in character). **Proximity voice:** with the mic on, you hear whoever's in
@@ -44,8 +63,13 @@ python app.py            # http://127.0.0.1:5085
 ```
 
 `OPENAI_API_KEY` (a local `.env`, or the host's environment) lets the bots talk with AI; without it they use plain
-lines. Optional: `OPENAI_MODEL` (default gpt-5-mini, for quick replies; falls back to gpt-5 if the key can't use it),
-`OPENAI_REASONING_EFFORT` (default minimal), `AI_DAILY_LIMIT`.
+lines. Optional: `OPENAI_MODEL` (default gpt-4o-mini, cheap and quick; falls back to gpt-4.1-mini if the key can't use it),
+`OPENAI_REASONING_EFFORT` (default minimal, only for gpt-5 and o-series models), `AI_DAILY_LIMIT` (calls a day, default 1500), `AI_GAME_LIMIT` (calls a
+game, default 60).
+
+To keep the bill small, bots only use the AI while a person is actually playing (a phone checked in within 40 seconds);
+games that carry on with only bots, and anything past a game's limit, use free plain lines. `/api/status` shows today's
+calls and tokens.
 
 ## Tests
 

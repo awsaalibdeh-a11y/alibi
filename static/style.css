@@ -279,3 +279,80 @@ table.truth { border-collapse: collapse; font-size: 0.8rem; min-width: 100%; }
 .plaque small { font-family: var(--type); font-size: 0.85rem; }
 .doors.shut .plaque { opacity: 1; }
 .doors.open .plaque { opacity: 0; transition: opacity 0.2s; }
+
+/* the killer's fuse box, the ghosts' house, pockets, and the ballots read out one by one */
+.card.cut summary { cursor: pointer; font-weight: 600; color: var(--red); }
+.card.cut[open] summary { margin-bottom: 0.5rem; }
+.card.haunt { background: #f1eef8; box-shadow: inset 0 0 0 1px #d8d0ec; }
+.big-emoji.sm { font-size: 1.4rem; }
+.picker.haunts { align-self: center; }
+.picker.haunts button.on { background: var(--gold-soft); box-shadow: inset 0 0 0 2px var(--gold); }
+.hauntmsg { align-items: center; background: #1d1a24; color: #e8e2f5; border-radius: 12px; padding: 0.4rem 0.6rem; }
+.hauntmsg.fresh { animation: chill 1.2s var(--ease); }
+.hauntmsg p { margin: 0; }
+@keyframes chill { 0% { opacity: 0; filter: blur(6px); transform: scale(0.96); } 40% { opacity: 1; filter: blur(1px); } 100% { filter: none; } }
+.card.pockets { background: var(--gold-soft); }
+.card.pockets.hit { background: var(--red-soft); box-shadow: inset 0 0 0 1px rgba(179, 38, 30, 0.3); }
+.ballots { display: flex; flex-direction: column; gap: 0.35rem; width: 100%; max-width: 22rem; }
+.ballot { background: #fff; border-radius: 10px; padding: 0.45rem 0.7rem; box-shadow: var(--shadow), inset 0 0 0 1px var(--line); font-family: var(--type); }
+.ballot .arrow { color: var(--red); }
+#app > div > section.enter .ballot { animation: ballot 0.35s var(--ease) both; }
+#app > div > section.enter .verdict { animation: verdict 0.6s var(--ease) both; }
+@keyframes ballot { from { opacity: 0; transform: translateX(-18px) rotate(-3deg); } }
+@keyframes verdict { from { opacity: 0; transform: scale(1.35); } }
+@media (prefers-reduced-motion: reduce) { #app > div > section.enter .ballot, #app > div > section.enter .verdict, .hauntmsg.fresh { animation: none; } }
+
+/* missions, the morning paper, dying clues, notes and accusations */
+.mission-line { margin: 0.3rem 0 0; font-size: 0.85rem; padding: 0.35rem 0.6rem; border-radius: 10px; background: var(--blue-soft); }
+.mission-line.done { background: var(--ok-soft); }
+.mission-line.failed { background: var(--red-soft); text-decoration: line-through; }
+.mission-end { display: block; font-size: 0.72rem; color: var(--muted); max-width: 12rem; text-align: right; }
+.mission-end.done { color: var(--ok); }
+.prow .right { display: flex; flex-direction: column; align-items: flex-end; }
+.swatch { display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.72rem; color: var(--muted); }
+.swatch i { width: 0.7rem; height: 0.7rem; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15); }
+.gazette { position: relative; background: #fbf8ef; color: #1e1b16; padding: 0.9rem 1rem 0.8rem; border-radius: 4px; box-shadow: var(--shadow), inset 0 0 0 1px #d9d0bb;
+  font-family: var(--serif); transform: rotate(-0.6deg); }
+#app > div > section.enter .gazette { animation: unfold 0.5s var(--ease); }
+.gazette .masthead { text-align: center; font-family: var(--serif); font-size: 1.35rem; font-weight: 700; letter-spacing: 0.02em; border-bottom: 3px double #1e1b16; padding-bottom: 0.2rem; }
+.gazette .dateline { text-align: center; font-family: var(--type); font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.1em; border-bottom: 1px solid #1e1b16; padding: 0.2rem 0; margin-bottom: 0.5rem; }
+.gazette h2 { margin: 0.2rem 0 0.4rem; font-size: 1.25rem; line-height: 1.15; text-align: center; }
+.gazette p { margin: 0.25rem 0; font-size: 0.9rem; }
+.gazette .close { position: absolute; top: 0.3rem; right: 0.3rem; }
+@keyframes unfold { from { opacity: 0; transform: rotate(-4deg) scale(0.9); } }
+.clue { background: var(--gold-soft); border-radius: 8px; padding: 0.4rem 0.6rem; }
+.notemsg { background: #fbf8ef; border-radius: 10px; padding: 0.4rem 0.6rem; box-shadow: inset 0 0 0 1px #d9d0bb; font-family: var(--serif); align-items: flex-start; }
+.notemsg p { margin: 0.15rem 0; font-size: 1rem; }
+.accusemsg { background: var(--red-soft); border-radius: 10px; padding: 0.4rem 0.6rem; box-shadow: inset 0 0 0 1px rgba(179, 38, 30, 0.3); }
+.accusemsg.fresh { animation: shake 0.5s var(--ease); }
+.accusemsg p { margin: 0.1rem 0; }
+.jaccuse { font-family: var(--serif); font-weight: 800; font-size: 1.3rem; color: var(--red); letter-spacing: 0.03em; }
+@keyframes shake { 0%, 100% { transform: none; } 20% { transform: translateX(-6px) rotate(-1deg); } 40% { transform: translateX(5px) rotate(1deg); } 60% { transform: translateX(-3px); } 80% { transform: translateX(2px); } }
+@media (prefers-reduced-motion: reduce) { #app > div > section.enter .gazette, .accusemsg.fresh { animation: none; } }
+
+/* the Detective and the Doctor, the bell, the notebook, the replay */
+.jobcard { display: flex; gap: 0.6rem; align-items: flex-start; text-align: left; margin-top: 0.6rem; padding: 0.55rem 0.7rem; border-radius: 12px; background: rgba(255, 255, 255, 0.7); box-shadow: inset 0 0 0 1px var(--line); }
+.jobcard p { margin: 0.15rem 0 0; }
+.job-emoji { font-size: 1.8rem; line-height: 1; }
+.card.jobpanel { background: var(--blue-soft); }
+.card.saved { background: var(--ok-soft); }
+.optbtn.detect { box-shadow: inset 0 0 0 1px #3f8fc9; }
+.optbtn.detect.on { background: #dcebfa; box-shadow: inset 0 0 0 2px #3f8fc9; }
+.btn.bell { color: var(--red); }
+.bellmsg { align-items: center; background: var(--red-soft); border-radius: 10px; padding: 0.4rem 0.6rem; }
+.bellmsg p { margin: 0; }
+.notebook-row .input.sm { margin-top: 0.3rem; padding: 0.35rem 0.55rem; font-size: 0.85rem; }
+.notebook-row.gone-row { opacity: 0.55; }
+.mark { width: 2.6rem; height: 2.6rem; border: 0; border-radius: 12px; background: var(--bg-2); box-shadow: inset 0 0 0 1px var(--line); font-size: 1.3rem; flex: none; }
+.house { display: grid; grid-template-columns: 1fr 1fr; gap: 0.45rem; }
+.hroom { background: var(--bg-2); border-radius: 12px; padding: 0.45rem; min-height: 5.2rem; box-shadow: inset 0 0 0 1px var(--line); transition: background 0.3s; }
+.hroom.murder { background: var(--red-soft); box-shadow: inset 0 0 0 2px var(--red); }
+.hroom p { margin: 0.2rem 0 0; }
+.hname { font-weight: 700; font-size: 0.85rem; }
+.hpeople { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.3rem; }
+.hp { display: flex; flex-direction: column; align-items: center; font-size: 0.68rem; animation: rise 0.35s var(--ease); }
+.scrub { display: flex; gap: 3px; }
+.scrub button { flex: 1; height: 0.5rem; border: 0; border-radius: 99px; background: var(--bg-3); padding: 0; }
+.scrub button.done { background: var(--gold-soft); }
+.scrub button.on { background: var(--gold); }
+@media (prefers-reduced-motion: reduce) { .hp { animation: none; } }

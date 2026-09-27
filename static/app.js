@@ -96,6 +96,11 @@ function sfx(kind) {
       win: () => [523, 659, 784, 1047].forEach((f, i) => tone(f, i * 0.12, 0.45, "triangle", 0.1)),
       lose: () => { tone(220, 0, 0.4, "sawtooth", 0.06); tone(165, 0.3, 0.8, "sawtooth", 0.06); },
       role: () => { tone(110, 0, 1.2, "sawtooth", 0.05); tone(165, 0.2, 1.1, "sawtooth", 0.04); },
+      gasp: () => { tone(740, 0, 0.12, "sawtooth", 0.06); tone(554, 0.12, 0.5, "sawtooth", 0.06); },
+      bell: () => [0, 0.45, 0.9].forEach((at) => { tone(880, at, 0.9, "sine", 0.1); tone(1320, at, 0.7, "sine", 0.04); }),
+      drum: () => { for (let i = 0; i < 14; i++) noise(i * 0.09, 0.08, 0.25 + i * 0.02, 260); },
+      click: () => tone(1500, 0, 0.04, "square", 0.04),
+      spook: () => { tone(392, 0, 1.2, "sine", 0.05); tone(370, 0.1, 1.3, "sine", 0.05); noise(0, 1.0, 0.15, 1800); },
     })[kind]?.();
   } catch { /* no audio */ }
 }
@@ -176,13 +181,14 @@ function accept(d) {
     const won = d.winner && (d.winner === "killers") === (d.me.role === "killer");
     if (before && d.phase === "over" && won) confetti();
     if (before && ["body", "showdown"].includes(d.phase)) { try { navigator.vibrate?.([90, 60, 180]); } catch { /* ignore */ } }
-    if (before) sfx({ roles: "role", move: "hour", room: door ? null : "door", body: "scream", showdown: "scream", vote: "vote",
+    if (before && d.phase === "result") setTimeout(() => sfx(d.ejected?.role === "killer" ? "win" : d.ejected ? "lose" : "tick"), (0.5 + (d.ballots || []).length * 0.45) * 1000);
+    if (before) sfx({ result: "drum", roles: "role", move: "hour", room: door ? null : "door", body: "scream", showdown: "scream", vote: "vote",
       over: d.winner && ((d.winner === "killers") === (d.me.role === "killer")) ? "win" : "lose" }[d.phase] || "tick");
     if (!ui.dm) window.scrollTo({ top: 0 });
   }
   if (before) {
     const n = (x) => (x?.chat?.length || 0) + (x?.roomchat?.length || 0);
-    if (n(d) > n(before)) sfx("msg");
+    if (n(d) > n(before)) sfx((d.chat || []).slice((before.chat || []).length).some((m) => m.accuse) ? "gasp" : "msg");
     const incoming = (d.dms || []).filter((m) => m.to === d.me.pid).length - (before.dms || []).filter((m) => m.to === d.me.pid).length;
     if (incoming > 0) sfx("dm");
   }
@@ -334,8 +340,15 @@ const bar = (title, ...right) => h("div", { class: "bar" },
 const who = (pid) => S.players.find((p) => p.pid === pid);
 const roomName = (id) => S.rooms.find((r) => r.id === id)?.name || id;
 const roomOf = (id) => S.rooms.find((r) => r.id === id);
+const swatch = (p) => (p.colorName ? h("span", { class: "swatch", title: `${p.colorName} coat` }, h("i", { style: { background: p.color } }), p.colorName) : null);
+/** Your secret mission and how it's going: shown with your role, so it stays covered too. */
+const missionLine = () => {
+  const m = S.me.mission;
+  if (!m || !ui.revealed) return null;
+  return h("p", { class: "mission-line" + (m.done ? " done" : m.failed ? " failed" : "") }, "🎯 ", m.text, " · ", h("b", {}, m.done ? "✅ done" : m.prog));
+};
 const roleChip = () => h("button", { class: "tag role-chip", type: "button", onClick: () => { ui.revealed = !ui.revealed; render(); } },
-  ui.revealed ? `${S.me.role === "killer" ? "🔪 Killer" : "🕯️ Guest"} · ${S.me.char?.title || ""}` : "👁 My role");
+  ui.revealed ? `${S.me.role === "killer" ? "🔪 Killer" : S.me.jobInfo ? `${S.me.jobInfo[0]} ${S.me.jobInfo[1].replace("The ", "")}` : "🕯️ Guest"} · ${S.me.char?.title || ""}` : "👁 My role");
 const ghostBanner = () => (!S.me.alive ? h("div", { class: "ghost stack" },
   h("span", {}, "👻 ", S.me.ejected ? "You were voted out." : "You're dead.", " Stay and watch everything (only other ghosts can hear you), or leave: the game carries on at its own pace either way."),
   h("div", { class: "row" }, h("span", { class: "spacer" }),
@@ -434,8 +447,10 @@ function roles() {
         h("div", { class: "role-emoji" }, killer ? "🔪" : "🕯️"),
         h("h1", { class: "who" }, killer ? "You are the killer" : "You are a guest"),
         h("p", {}, killer ? "Come into a room already carrying a weapon, and strike when you're alone with someone. Then lie about where you were." : "Go about your day. Notice who you're with, who picks up what, and who lies about it later."),
-        fellow.length ? h("p", { class: "small" }, "Your partner in crime: ", h("b", {}, fellow.map((p) => p.name).join(", "))) : null),
-    h("div", { class: "card" }, h("span", { class: "label" }, "The guests"), h("div", { class: "plist" }, S.players.map((p) => h("div", { class: "prow" }, face(p), h("span", {}, h("b", {}, p.name), h("br"), h("small", { class: "muted" }, p.char?.title || "")))))),
+        fellow.length ? h("p", { class: "small" }, "Your partner in crime: ", h("b", {}, fellow.map((p) => p.name).join(", "))) : null,
+        S.me.jobInfo ? h("div", { class: "jobcard" }, h("span", { class: "job-emoji" }, S.me.jobInfo[0]), h("div", {}, h("b", {}, `You're also ${S.me.jobInfo[1]}`), h("p", { class: "small" }, S.me.jobInfo[2]))) : null,
+        S.me.mission ? h("p", { class: "mission-line" }, "🎯 Secret mission: ", h("b", {}, S.me.mission.text)) : null),
+    h("div", { class: "card" }, h("span", { class: "label" }, "The guests"), h("div", { class: "plist" }, S.players.map((p) => h("div", { class: "prow" }, face(p), h("span", {}, h("b", {}, p.name), h("br"), h("small", { class: "muted" }, p.char?.title || "")), h("span", { class: "spacer" }), swatch(p))))),
     h("p", { class: "muted small center" }, "The day begins in ", timer(S.deadline)));
 }
 
@@ -444,7 +459,7 @@ function dayHeader() {
   return h("div", { class: "dayhead" },
     h("div", { class: "meta" }, h("span", { class: "tag" }, S.showdown ? "⚔️ Showdown" : `Day ${S.day}`), h("span", { class: "tag hour" }, `🕰️ ${S.hours[S.hour]}`, h("span", { class: "hourdots", "aria-hidden": "true" }, S.hours.map((_, i) => h("i", { class: i < S.hour ? "done" : i === S.hour ? "now" : "" })))), timer(S.deadline), roleChip()),
     S.beat ? h("p", { class: "beat" }, "📜 ", S.beat.text) : null,
-    S.me.carrying ? h("p", { class: "carry" }, "You're carrying the ", h("b", {}, S.me.carrying), ".") : null);
+    S.me.carrying ? h("p", { class: "carry" }, "You're carrying the ", h("b", {}, S.me.carrying), ".") : null, missionLine());
 }
 function lastHour() {
   const last = (S.myday || [])[S.myday.length - 1];
@@ -467,22 +482,48 @@ function move() {
       lastHour());
   }
   return h("section", { class: "stack" }, bar(S.showdown ? "The last day" : `Day ${S.day}`), dayHeader(),
+    gazette(),
     S.showdown ? h("div", { class: "card warn" }, h("b", {}, "The final showdown. "), S.me.role === "killer" ? "Catch every guest alone before dusk." : "Stay alive until dusk. Don't be caught alone with the killer.") : null,
     h("h2", { class: "h2" }, `Where will you be at ${S.hours[S.hour]}?`),
     h("div", { class: "rooms" }, S.rooms.map((r) => h("button", { class: "roombtn", type: "button", disabled: r.id === locked, onClick: () => { ui.changing = false; act("move", { room: r.id }); } },
       h("span", { class: "big-emoji" }, r.emoji), h("b", {}, r.name), h("small", {}, r.id === locked ? "Locked by the rain" : r.act)))),
+    S.canCut ? cutCard() : null, doctorCard(), S.canBell ? h("button", { class: "btn ghost block bell", type: "button",
+      onClick: () => { if (confirm("Ring the bell? Everyone stops what they're doing and the meeting starts now. Once a game.")) { sfx("bell"); act("bell"); } } }, "🔔 Ring the bell: call the meeting now") : null,
     lastHour(), voiceTip());
+}
+/** The Doctor chooses today's patient: whoever it is survives the killer's strike today. */
+function doctorCard() {
+  if (S.me.job !== "doctor" || !S.me.alive) return null;
+  return h("div", { class: "card jobpanel" }, h("span", { class: "label" }, "🩺 The Doctor"),
+    S.guard ? h("p", {}, "Today you're watching over ", h("b", {}, S.guard), ". If the killer strikes them, they'll live.")
+      : [h("p", { class: "small" }, "Choose today's patient: if the killer strikes them today, they survive."),
+        h("button", { class: "btn primary block", type: "button", onClick: () => pickSheet("🩺 Today's patient", "You can't pick yourself, and you can't change your mind today.", (p) => act("guard", { target: p.pid })) }, "Choose a patient")]);
+}
+/** The Wrenmoor Gazette: yesterday, in headlines, every morning. */
+function gazette() {
+  const g = S.gazette;
+  if (!g || ui.paperShut === `${S.day}`) return null;
+  return h("div", { class: "gazette" }, h("button", { class: "ibtn close", type: "button", "aria-label": "Fold the paper", onClick: () => { ui.paperShut = `${S.day}`; render(); } }, "✕"),
+    h("div", { class: "masthead" }, "The Wrenmoor Gazette"), h("div", { class: "dateline" }, `Morning of day ${S.day} · One penny`),
+    h("h2", {}, g.headline), g.lines.map((l) => h("p", {}, l)));
+}
+/** The killer's trick, once a day: plunge a room into darkness for this hour. Everyone sees the lights go. */
+function cutCard() {
+  return h("details", { class: "card cut" }, h("summary", {}, "🔌 Cut the lights (once a day)"),
+    h("p", { class: "muted small" }, "Pick a room: it's pitch dark in there this hour. Nobody sees who's inside, and you can strike whoever's alone with you."),
+    h("div", { class: "opts2" }, S.rooms.filter((r) => r.id !== "garden").map((r) => h("button", { class: "optbtn", type: "button",
+      onClick: () => { if (confirm(`Cut the lights in the ${r.name}?`)) act("cut", { room: r.id }); } }, `${r.emoji} ${r.name}`))));
 }
 
 /* ---------- each hour, step 2: in the room ---------- */
 function room() {
-  if (!S.me.alive) return h("section", { class: "stack" }, bar(`Day ${S.day}`), ghostBanner(), dayHeader(), h("p", { class: "lead" }, "The living are in their rooms…"), ghostChat());
+  if (!S.me.alive) return h("section", { class: "stack" }, bar(`Day ${S.day}`), ghostBanner(), dayHeader(), hauntCard(), ghostChat());
   const here = S.here;
   if (!here) return h("section", { class: "stack" }, bar(`Day ${S.day}`), dayHeader());
   const r = roomOf(here.room);
   const killer = S.me.role === "killer";
   const a = S.acted || {};                                       // what you've chosen so far: saved as you tap, used when the hour ends
-  const choose = (patch) => act("do", { act: a.act === "look" ? "look" : "act", take: a.take || null, sneak: !!a.sneak, put: !!a.put, strike: a.strike || null, ...patch });
+  const choose = (patch) => act("do", { act: a.act === "look" ? "look" : "act", take: a.take || null, sneak: !!a.sneak, put: !!a.put, strike: a.strike || null, investigate: a.investigate || null, ...patch });
   const people = here.dark
     ? h("div", { class: "card dark" }, h("b", {}, "It's pitch dark."), h("p", {}, here.count ? `You can hear ${here.count === 1 ? "someone" : `${here.count} people`} breathing nearby.` : "You seem to be alone… probably."))
     : h("div", { class: "card" }, h("span", { class: "label" }, here.people.length ? "Here with you" : "Nobody else is here"),
@@ -492,7 +533,7 @@ function room() {
   const opt = (on, label, fn, cls = "") => h("button", { class: `optbtn ${cls}${on ? " on" : ""}`, type: "button", "aria-pressed": String(on), onClick: fn }, label);
   const home = S.me.carrying && S.rooms.find((x) => x.items.includes(S.me.carrying))?.id === here.room;
   const victims = here.people.filter((p) => who(p.pid)?.role !== "killer");
-  const canStrike = killer && S.me.carrying && (here.dark ? here.count === 1 : victims.length === 1 && here.people.length === 1);
+  const canStrike = killer && S.me.carrying && (here.dark ? here.count === 1 : victims.length > 0);
   const looking = a.act === "look";
   const doPanel = h("div", { class: "card stack" }, h("span", { class: "label" }, "What do you do?"),
     h("div", { class: "opts2" },
@@ -502,9 +543,14 @@ function room() {
       !here.items.length ? h("p", { class: "muted small" }, "Nothing here worth taking: someone got there first.") : null) : null,
     a.take ? opt(!!a.sneak, "🤫 Sneak it: only someone looking around will notice", () => choose({ sneak: !a.sneak }), "sneak") : null,
     home ? opt(!!a.put, `↩️ Put back the ${S.me.carrying}`, () => choose({ put: !a.put })) : null,
-    killer ? (canStrike ? opt(!!a.strike, here.dark ? `🔪 Strike whoever is in the dark (with the ${S.me.carrying})` : `🔪 Strike ${victims[0].name} (with the ${S.me.carrying})`,
-      () => choose({ strike: a.strike ? null : (here.dark ? "dark" : victims[0].pid) }), "strike")
-      : h("p", { class: "muted small" }, S.me.carrying ? "🔪 You can only strike when you're alone with one person." : "🔪 Take a weapon: you can strike from the next hour.")) : null,
+    killer ? (canStrike ? (here.dark ? [opt(a.strike === "dark", `🔪 Strike whoever is in the dark (with the ${S.me.carrying})`, () => choose({ strike: a.strike ? null : "dark" }), "strike")]
+      : victims.map((v) => opt(a.strike === v.pid, `🔪 Walk up to ${v.name} and strike (with the ${S.me.carrying})${here.people.length > 1 ? ` · ${here.people.length - 1} will see it` : ""}`,
+        () => choose({ strike: a.strike === v.pid ? null : v.pid }), "strike")))
+      : h("p", { class: "muted small" }, S.me.carrying ? (here.dark ? "🔪 Too dark: you can only find someone if they're alone in here with you." : "🔪 Nobody here to strike.") : "🔪 Take a weapon: you can strike from the next hour.")) : null,
+    S.me.job === "detective" ? (S.checked ? h("p", { class: "muted small" }, "🕵️ You've already questioned someone today.")
+      : !here.dark && here.people.length === 1 ? opt(a.investigate === here.people[0].pid, `🕵️ Question ${here.people[0].name} (once a day): are they a killer?`,
+        () => choose({ investigate: a.investigate ? null : here.people[0].pid }), "detect")
+        : h("p", { class: "muted small" }, "🕵️ To question someone, you need to be alone with them, with the lights on.")) : null,
     S.leaving ? h("p", { class: "center muted small" }, "✓ Ready to move on. Waiting for the others, or the clock.")
       : h("button", { class: "btn primary block", type: "button", onClick: async () => { if (!S.acted) await choose({}); act("leave_room"); } }, "Leave the room ▸"),
     h("p", { class: "muted small center" }, "Your choice is saved as you tap it. Stay up to a minute to talk."));
@@ -518,6 +564,20 @@ function room() {
     doPanel, voiceTip());
 }
 
+/** The dead see the whole house, and once an hour can send a sign rattling through one room. */
+const HAUNTS = ["👻", "🔪", "👀", "🕯️", "❄️", "❓"];
+function hauntCard() {
+  const house = S.house || [];
+  return h("div", { class: "card stack haunt" }, h("span", { class: "label" }, "👻 The house, from beyond"),
+    h("div", { class: "plist" }, house.map((x) => { const r = roomOf(x.room); return h("div", { class: "prow" }, h("span", { class: "big-emoji sm" }, r.emoji),
+      h("span", { class: "grow" }, h("b", {}, r.name), h("br"), h("small", { class: "muted" }, x.people.length ? x.people.join(", ") : "empty"))); })),
+    S.haunted ? h("p", { class: "muted small center" }, "The candles still flicker where you passed. You can haunt again next hour.")
+      : [h("p", { class: "muted small" }, "Rattle a room: the living in it see your sign. Point them at the truth… or just scare them."),
+        h("div", { class: "picker haunts" }, HAUNTS.map((e) => h("button", { type: "button", class: ui.haunt === e ? "on" : "", onClick: () => { ui.haunt = e; render(); } }, e))),
+        h("div", { class: "opts2" }, house.filter((x) => x.people.length).map((x) => h("button", { class: "optbtn", type: "button",
+          onClick: () => { sfx("spook"); act("haunt", { room: x.room, emoji: ui.haunt || "👻" }); } }, `Haunt the ${roomName(x.room)} with ${ui.haunt || "👻"}`)))]);
+}
+
 /* ---------- messages ---------- */
 const REACTIONS = ["👍", "😂", "😱", "🤔", "🔪", "👀"];
 function reactRow(m) {
@@ -529,7 +589,15 @@ function reactRow(m) {
     h("button", { class: "react add", type: "button", "aria-label": "React", onClick: () => { ui.reactFor = open ? null : m.id; render(); } }, open ? "✕" : "☺︎+"),
     open ? h("span", { class: "picker" }, REACTIONS.map((e) => h("button", { type: "button", onClick: () => pick(e) }, e))) : null);
 }
+const seenMsgs = new Set();                   // special messages animate once, when they first arrive, not on every redraw
 function msgEl(m) {
+  const fresh = m.id && !seenMsgs.has(m.id) ? " fresh" : "";
+  if (m.id) seenMsgs.add(m.id);
+  if (m.bell) return h("div", { class: "cmsg bellmsg" }, h("span", { class: "big-emoji" }, "🔔"), h("p", {}, h("b", {}, m.text)));
+  if (m.note) return h("div", { class: "cmsg notemsg" + fresh }, h("span", { class: "big-emoji" }, "📜"), h("div", {}, h("i", { class: "small" }, "A note has been slipped under the door…"), h("p", {}, `“${m.text}”`), m.id ? reactRow(m) : null));
+  if (m.accuse) return h("div", { class: "cmsg accusemsg" + fresh }, face({ name: m.name, color: m.color }, "sm"),
+    h("div", {}, h("b", { style: { color: m.color } }, m.name, m.bot ? " 🤖" : ""), h("p", { class: "jaccuse" }, "👉 J'ACCUSE!"), h("p", {}, "I think it's ", h("b", {}, m.accuse), "."), m.id ? reactRow(m) : null));
+  if (m.haunt) return h("div", { class: "cmsg hauntmsg" + fresh }, h("span", { class: "big-emoji" }, m.text), h("p", {}, h("i", {}, "An icy draft sweeps the room… "), h("b", {}, m.name), " was here."));
   return h("div", { class: "cmsg" + (m.pid === S.me.pid ? " mine" : "") + (m.ghost ? " ghostmsg" : "") },
     face({ name: m.name, color: m.color }, "sm"),
     h("div", {}, h("b", { style: { color: m.color } }, m.name, m.bot ? " 🤖" : "", m.ghost ? " 👻" : ""),
@@ -595,16 +663,18 @@ function bodyCard(compact = false) {
     h("h2", {}, b.victim), h("p", { class: "muted small" }, b.char),
     h("p", {}, `Found in the ${b.room} ${b.foundAt === "dusk" ? "at dusk" : `at ${b.foundAt}`}${b.foundBy.length ? ` by ${b.foundBy.join(" and ")}` : ""}.`),
     h("p", {}, h("b", {}, "Died around "), b.hour, ", ", b.cause, "."),
+    b.autopsy ? h("p", { class: "clue" }, "🩺 Your autopsy: it was the ", h("b", {}, b.autopsy), ".") : null,
+    b.clue ? h("p", { class: "clue" }, "🧵 Clutched in their hand: threads of ", h("b", {}, b.clue), " fabric. One of them is from the killer's coat…") : null,
     S.missing?.length ? h("p", {}, h("b", {}, "Missing from the house: "), S.missing.map((m) => `the ${m.item} (${m.room})`).join(", "), ".") : h("p", {}, "Nothing is missing from the house."));
 }
 function body() {
   return h("section", { class: "stack" }, bar(`Day ${S.day}`),
     h("div", { class: "scream" }, h("span", { class: "label" }, "A scream rings through Wrenmoor"), h("h1", { class: "display" }, `${S.body?.victim || "Someone"} is dead.`)),
-    ghostBanner(), bodyCard(), dayLog(), storyLog(), h("p", { class: "muted small center" }, "The meeting starts in ", timer(S.deadline)));
+    ghostBanner(), bodyCard(), survivors(), dayLog(), storyLog(), h("p", { class: "muted small center" }, "The meeting starts in ", timer(S.deadline)));
 }
 function quiet() {
   return h("section", { class: "stack" }, bar(`Day ${S.day}`), h("div", { class: "scream calm" }, h("span", { class: "label" }, `Day ${S.day} ends`), h("h1", { class: "display" }, "Nobody died today.")),
-    h("p", { class: "lead" }, "But the killer is still among you, and someone has been picking things up…"),
+    h("p", { class: "lead" }, "But the killer is still among you, and someone has been picking things up…"), survivors(),
     S.missing?.length ? h("div", { class: "card" }, h("b", {}, "Missing: "), S.missing.map((m) => `the ${m.item} (${m.room})`).join(", ")) : null, dayLog(),
     h("p", { class: "muted small center" }, "The meeting starts in ", timer(S.deadline)));
 }
@@ -632,6 +702,59 @@ function storyLog() {
 }
 
 /* ---------- the meeting ---------- */
+/** Your private suspect board: tap to cycle a verdict, jot a note. Kept on this phone only. */
+const MARKS = [["", "❔", "no idea"], ["ok", "✅", "innocent"], ["hmm", "⚠️", "suspicious"], ["killer", "🔪", "the killer"]];
+const bookKey = () => `alibi.notes.${me?.code}`;
+function loadBook() { try { return JSON.parse(localStorage.getItem(bookKey()) || "{}"); } catch { return {}; } }
+function saveBook(b) { try { localStorage.setItem(bookKey(), JSON.stringify(b)); } catch { /* private mode: it just won't stick */ } }
+function notebook() {
+  const book = loadBook();
+  return h("div", { class: "card stack" }, h("span", { class: "label" }, "📝 Your notebook (only you can see this)"),
+    h("div", { class: "plist" }, S.players.filter((p) => p.pid !== S.me.pid).map((p) => {
+      const e = book[p.pid] || {};
+      const i = Math.max(0, MARKS.findIndex((m) => m[0] === (e.mark || "")));
+      const note = h("input", { class: "input sm", placeholder: "A note…", maxlength: "80", value: e.text || "", "data-keep": `note-${p.pid}`, "aria-label": `Note on ${p.name}` });
+      note.addEventListener("change", () => { const b = loadBook(); b[p.pid] = { ...(b[p.pid] || {}), text: note.value }; saveBook(b); });
+      return h("div", { class: "prow top notebook-row" + (p.alive ? "" : " gone-row") }, face(p, "sm"),
+        h("div", { class: "grow" }, h("b", {}, p.name), h("small", { class: "muted" }, p.alive ? ` · ${p.char?.title || ""}` : " · gone"), note),
+        h("button", { class: "mark", type: "button", title: MARKS[i][2], "aria-label": `${p.name}: ${MARKS[i][2]}`,
+          onClick: () => { const b = loadBook(); b[p.pid] = { ...(b[p.pid] || {}), mark: MARKS[(i + 1) % MARKS.length][0] }; saveBook(b); sfx("click"); render(); } }, MARKS[i][1]));
+    })));
+}
+/** Once a game: go through someone's pockets. Only you learn what's there; they learn you looked. */
+function pickSheet(title, blurb, pick) {
+  const scrim = h("div", { class: "sheet-scrim" });
+  const close = () => { scrim.remove(); sheet.remove(); };
+  scrim.addEventListener("click", close);
+  const sheet = h("div", { class: "sheet", role: "dialog", "aria-modal": "true", "aria-label": title },
+    h("h3", {}, title), h("p", { class: "muted small" }, blurb),
+    h("div", { class: "pick" }, S.players.filter((p) => p.alive && p.pid !== S.me.pid).map((p) => h("button", { class: "pickbtn", type: "button",
+      onClick: () => { close(); pick(p); } }, face(p, "sm"), h("span", {}, h("b", {}, p.name), h("small", { class: "muted" }, ` ${p.char?.title || ""}`)), h("span", { class: "spacer" }), swatch(p)))));
+  document.body.append(scrim, sheet);
+}
+const searchSheet = () => pickSheet("🧤 Search someone's pockets", "Once a game. You'll see what they're carrying right now; they'll know it was you.",
+  (p) => { sfx("click"); act("search", { target: p.pid }); });
+const accuseSheet = () => pickSheet("👉 J'accuse!", "Once a meeting: point at someone in front of everyone. Bots will answer back.",
+  (p) => act("accuse", { target: p.pid }));
+function writeNote() {
+  const text = prompt("Write an anonymous note (once a game). Everyone reads it; nobody knows it was you.");
+  if (text && text.trim()) act("note", { text: text.trim().slice(0, 200) });
+}
+function casebook() {
+  if (S.me.job !== "detective") return null;
+  const f = S.findings || [];
+  return h("div", { class: "card jobpanel" }, h("span", { class: "label" }, "🕵️ Your casebook"),
+    f.length ? f.map((x) => h("p", { class: x.killer ? "no" : "" }, `Day ${x.day}, ${x.hour}: `, h("b", {}, x.target), x.killer ? " is a KILLER 🔪" : " is innocent ✓"))
+      : h("p", { class: "muted small" }, "No one questioned yet. Get someone alone."));
+}
+const survivors = () => (S.saves?.length ? S.saves.map((x) => h("div", { class: "card saved" }, "🩺 ", h("b", {}, x.victim), ` was attacked in the ${x.room} around ${x.hour}, and survived. The Doctor was watching over them.`)) : null);
+function searchNotes() {
+  const list = (S.searches || []).filter((x) => x.day === S.day || x.mine);
+  if (!list.length) return null;
+  return h("div", { class: "stack" }, list.map((x) => h("div", { class: "card pockets" + (x.mine && x.found ? " hit" : "") }, "🧤 ",
+    x.mine ? [`You went through ${x.target}'s pockets: `, x.found ? h("b", {}, `the ${x.found}!`) : "nothing but lint."]
+      : [h("b", {}, x.by), " went through your pockets", x.found ? ` and saw the ${x.found}.` : ". They found nothing."])));
+}
 function claimSheet() {
   const hours = (S.myday || []).map((e) => e.i);
   ui.draft = ui.draft || Object.fromEntries((S.myday || []).map((e) => [e.i, e.room]));
@@ -653,19 +776,20 @@ function talk() {
   const alive = S.players.filter((p) => p.alive && !p.bot);
   const readyN = alive.filter((p) => p.readyToVote).length;
   const claimed = who(S.me.pid)?.claimed;
-  const tabs = h("div", { class: "tabs" }, [["chat", "💬 Meeting"], ["evidence", "🔎 Evidence"], ["people", "👥 Who said what"]].map(([k, l]) =>
+  const tabs = h("div", { class: "tabs" }, [["chat", "💬 Chat"], ["evidence", "🔎 Clues"], ["people", "👥 People"], ["notes", "📝 Notes"]].map(([k, l]) =>
     h("button", { type: "button", class: ui.tab === k ? "on" : "", onClick: () => { ui.tab = k; render(); } }, l)));
   let main;
-  if (ui.tab === "evidence") main = h("div", { class: "stack" }, bodyCard(true) || h("div", { class: "card" }, "Nobody died today.", S.missing?.length ? ` Missing: ${S.missing.map((m) => `the ${m.item}`).join(", ")}.` : ""), dayLog(), storyLog());
+  if (ui.tab === "evidence") main = h("div", { class: "stack" }, casebook(), survivors(), searchNotes(), bodyCard(true) || h("div", { class: "card" }, "Nobody died today.", S.missing?.length ? ` Missing: ${S.missing.map((m) => `the ${m.item}`).join(", ")}.` : ""), dayLog(), storyLog());
+  else if (ui.tab === "notes") main = notebook();
   else if (ui.tab === "people") {
     main = h("div", { class: "plist card" }, S.players.map((p) => {
       const c = [...(S.chat || [])].reverse().find((m) => m.pid === p.pid && m.claim);
-      return h("div", { class: "prow top" }, face(p), h("div", { class: "grow" }, h("b", {}, p.name, p.alive ? "" : p.ejected ? " · voted out" : " · dead"), h("small", { class: "muted" }, ` ${p.char?.title || ""}`),
+      return h("div", { class: "prow top" }, face(p), h("div", { class: "grow" }, h("b", {}, p.name, p.alive ? "" : p.ejected ? " · voted out" : " · dead"), h("small", { class: "muted" }, ` ${p.char?.title || ""} · `), swatch(p),
         c ? h("div", { class: "claim" }, c.claim.map((x) => h("span", {}, h("i", {}, x.hour), " ", x.room))) : h("small", { class: "muted", style: { display: "block" } }, p.alive ? "Hasn't shared their day" : "")),
         p.pid !== S.me.pid && p.alive === S.me.alive ? h("button", { class: "btn sm ghost", type: "button", onClick: () => { ui.dm = p.pid; render(); } }, "✉️") : null);
     }));
   } else {
-    main = h("div", { class: "stack" }, h("div", { class: "chatlog", "data-log": "meeting" }, (S.chat || []).map(msgEl),
+    main = h("div", { class: "stack" }, searchNotes(), h("div", { class: "chatlog", "data-log": "meeting" }, (S.chat || []).map(msgEl),
       !(S.chat || []).length ? h("p", { class: "muted small center" }, "Nobody has said anything yet. Start with where you were.") : null),
       typingLine(S.typing?.meet),
       composer("chat", S.me.alive ? "Say something to everyone…" : "Whisper to the other ghosts…", (t) => act("chat", { text: t }), "meet"));
@@ -673,6 +797,9 @@ function talk() {
   return h("section", { class: "stack" }, bar(`Day ${S.day} · the meeting`, timer(S.deadline)), ghostBanner(), voiceTip(), tabs, main,
     S.me.alive ? h("div", { class: "row" },
       h("button", { class: "btn sm" + (claimed ? "" : " primary"), type: "button", onClick: claimSheet }, claimed ? "📋 Share my day again" : "📋 Share my day"),
+      !S.me.searched ? h("button", { class: "btn sm", type: "button", onClick: searchSheet }, "🧤 Search pockets") : null,
+      !S.accused ? h("button", { class: "btn sm", type: "button", onClick: accuseSheet }, "👉 J'accuse") : null,
+      !S.me.noted ? h("button", { class: "btn sm", type: "button", onClick: writeNote }, "📜 Anonymous note") : null,
       h("span", { class: "spacer" }),
       h("button", { class: "btn sm", type: "button", disabled: S.readyToVote, onClick: () => act("votenow") }, S.readyToVote ? `Waiting (${readyN}/${alive.length})` : `Vote now (${readyN}/${alive.length})`)) : null);
 }
@@ -692,14 +819,50 @@ function vote() {
 
 function result() {
   const e = S.ejected;
+  const ballots = S.ballots || [];
+  const wait = `${0.5 + ballots.length * 0.45}s`;                // the verdict lands after the last ballot is read out
   return h("section", { class: "stack center-col" }, bar("The vote"),
-    e ? [h("h1", { class: "display" }, `${e.name} is out.`), h("p", { class: "lead " + (e.role === "killer" ? "yes" : "no") }, e.role === "killer" ? "They were a killer! 🔪" : "They were innocent…")]
-      : h("h1", { class: "display" }, "Nobody is out."),
-    h("div", { class: "row center" }, Object.entries(S.tally || {}).sort((a, b) => b[1] - a[1]).map(([n, c]) => h("span", { class: "tag" }, `${n === "skip" ? "Skip" : n}: ${c}`))),
+    h("span", { class: "label" }, "The ballots are read out…"),
+    h("div", { class: "ballots" }, ballots.map((b, i) => h("div", { class: "ballot", style: { animationDelay: `${0.3 + i * 0.45}s` } }, h("b", {}, b.from), h("span", { class: "arrow" }, " ➜ "), h("b", {}, b.to)))),
+    h("div", { class: "verdict", style: { animationDelay: wait } },
+      e ? [h("h1", { class: "display" }, `${e.name} is out.`), h("p", { class: "lead " + (e.role === "killer" ? "yes" : "no") }, e.role === "killer" ? "They were a killer! 🔪" : "They were innocent…")]
+        : h("h1", { class: "display" }, "Nobody is out."),
+      h("div", { class: "row center" }, Object.entries(S.tally || {}).sort((a, b) => b[1] - a[1]).map(([n, c]) => h("span", { class: "tag" }, `${n === "skip" ? "Skip" : n}: ${c}`)))),
     h("p", { class: "muted small" }, "Next: ", timer(S.deadline)));
 }
 
 /* ---------- the end ---------- */
+/** The whole weekend replayed on a map of the house, hour by hour: who was where, and where it happened. */
+const replayState = { step: 0, timer: null };
+function replay() {
+  const steps = (S.truth || []).flatMap((d) => d.grid.map((g) => ({ day: d, hour: g.hour, rows: g.rows })));
+  if (!steps.length) return null;
+  const at = Math.min(replayState.step, steps.length - 1);
+  const st = steps[at];
+  const kills = st.day.kills.filter((k) => k.hour === st.hour);
+  const stop = () => { clearInterval(replayState.timer); replayState.timer = null; };
+  const go = (n) => { replayState.step = Math.max(0, Math.min(steps.length - 1, n)); render(); };
+  const play = () => {
+    if (replayState.timer) { stop(); return render(); }
+    if (at >= steps.length - 1) replayState.step = 0;
+    replayState.timer = setInterval(() => { if (S?.phase !== "over" || replayState.step >= steps.length - 1) { stop(); if (S) render(); return; } replayState.step++; render(); }, 1400);
+    render();
+  };
+  return h("div", { class: "card stack replay" }, h("span", { class: "label" }, "🎬 Replay the weekend"),
+    h("div", { class: "row" }, h("b", {}, st.day.showdown ? "Showdown" : `Day ${st.day.n}`), h("span", { class: "tag" }, `🕰️ ${st.hour}`), h("span", { class: "spacer" }),
+      h("button", { class: "ibtn", type: "button", "aria-label": "Back", onClick: () => { stop(); go(at - 1); } }, "◀"),
+      h("button", { class: "ibtn", type: "button", "aria-label": replayState.timer ? "Pause" : "Play", onClick: play }, replayState.timer ? "⏸" : "▶"),
+      h("button", { class: "ibtn", type: "button", "aria-label": "Forward", onClick: () => { stop(); go(at + 1); } }, "▶▶")),
+    h("div", { class: "house" }, S.rooms.map((r) => {
+      const here = st.rows.filter((x) => x.room === r.name);
+      const k = kills.find((x) => x.room === r.name);
+      return h("div", { class: "hroom" + (k ? " murder" : "") }, h("span", { class: "hname" }, r.emoji, " ", r.name),
+        h("div", { class: "hpeople" }, here.map((x) => { const p = S.players.find((q) => q.name === x.name); return h("span", { class: "hp", title: x.did || x.name }, face({ name: x.name, color: p?.color }, "sm"), h("small", {}, x.name)); })),
+        k ? h("p", { class: "small no" }, `🔪 ${k.killer} killed ${k.victim}`) : null,
+        here.filter((x) => x.did).map((x) => h("p", { class: "small muted" }, `${x.name} ${x.did}`)));
+    })),
+    h("div", { class: "scrub" }, steps.map((_, i) => h("button", { type: "button", class: i === at ? "on" : i < at ? "done" : "", "aria-label": `Step ${i + 1}`, onClick: () => { stop(); go(i); } }))));
+}
 function over() {
   const killers = S.players.filter((p) => p.role === "killer");
   const iWon = (S.winner === "killers") === (S.me.role === "killer");
@@ -714,7 +877,10 @@ function over() {
       h("div", { class: "awards" }, S.awards.map((a) => h("div", { class: "award" }, h("span", { class: "award-emoji" }, a.emoji),
         h("span", {}, h("b", {}, a.title), h("br"), h("span", {}, a.name), h("small", { class: "muted" }, ` · ${a.detail}`)))))) : null,
     h("div", { class: "card" }, h("span", { class: "label" }, "Everyone"), h("div", { class: "plist" }, S.players.map((p) => h("div", { class: "prow" }, face(p), h("span", {}, h("b", {}, p.name), h("br"), h("small", { class: "muted" }, p.char?.title || "")),
-      h("span", { class: "spacer" }), h("span", { class: p.role === "killer" ? "no" : "muted" }, p.role === "killer" ? "🔪 killer" : p.alive ? "survived" : p.ejected ? "voted out" : "killed"))))),
+      h("span", { class: "spacer" }), h("span", { class: "right" }, h("span", { class: p.role === "killer" ? "no" : "muted" }, p.role === "killer" ? "🔪 killer" : p.alive ? "survived" : p.ejected ? "voted out" : "killed"),
+        p.job ? h("small", { class: "muted" }, p.job === "detective" ? "🕵️ the Detective" : "🩺 the Doctor") : null,
+        p.mission ? h("small", { class: "mission-end" + (p.mission.done ? " done" : "") }, `🎯 ${p.mission.text}: ${p.mission.done ? "✅" : "❌"}`) : null))))),
+    replay(),
     (S.truth || []).map((d) => h("div", { class: "card stack" }, h("span", { class: "label" }, d.showdown ? "The final showdown" : `Day ${d.n}: what really happened`),
       d.kills.length ? d.kills.map((k) => h("p", {}, h("b", {}, k.killer), ` killed ${k.victim} in the ${k.room} at ${k.hour} with the ${k.weapon}.`)) : h("p", { class: "muted" }, "Nobody died."),
       h("div", { class: "grid-wrap" }, h("table", { class: "truth" },
