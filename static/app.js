@@ -776,7 +776,7 @@ function talk() {
   const alive = S.players.filter((p) => p.alive && !p.bot);
   const readyN = alive.filter((p) => p.readyToVote).length;
   const claimed = who(S.me.pid)?.claimed;
-  const tabs = h("div", { class: "tabs" }, [["chat", "💬 Meeting"], ["evidence", "🔎 Evidence"], ["people", "👥 Who said what"], ["notes", "📝 Notebook"]].map(([k, l]) =>
+  const tabs = h("div", { class: "tabs" }, [["chat", "💬 Chat"], ["evidence", "🔎 Clues"], ["people", "👥 People"], ["notes", "📝 Notes"]].map(([k, l]) =>
     h("button", { type: "button", class: ui.tab === k ? "on" : "", onClick: () => { ui.tab = k; render(); } }, l)));
   let main;
   if (ui.tab === "evidence") main = h("div", { class: "stack" }, casebook(), survivors(), searchNotes(), bodyCard(true) || h("div", { class: "card" }, "Nobody died today.", S.missing?.length ? ` Missing: ${S.missing.map((m) => `the ${m.item}`).join(", ")}.` : ""), dayLog(), storyLog());
