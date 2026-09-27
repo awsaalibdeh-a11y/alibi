@@ -18,6 +18,10 @@ the empty chairs.
   alone in a room with the lights on: they learn whether that person is a killer (and a killer feels someone studying
   them). The Doctor picks a patient each day: if the killer strikes them, they survive (without seeing who did it), and
   the Doctor's autopsy names the exact weapon.
+- **🎭 The Shapeshifter** (5+ players): one of the killers can wear another guest's face for an hour, once a day. Anyone
+  who sees them, even watching them strike, sees that guest, and blames them. The Detective can unmask them, and the
+  dying clue's coat colour is still their own. **🔮 The Medium** (6+ players) reads the ghosts' chat and holds a séance
+  once a day; the dead answer in riddles. The host can switch any special role off in the lobby.
 - **🔔 The emergency bell.** Once a game, from 11 AM, anyone can ring it and call the meeting at once.
 - **📝 A notebook** in the meeting: mark each guest ✅ ⚠️ 🔪 and jot notes (kept on your phone only).
 - **🎬 Replay** at the end: the whole weekend on a map of the house, hour by hour.

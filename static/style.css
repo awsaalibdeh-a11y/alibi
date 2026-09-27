@@ -356,3 +356,19 @@ table.truth { border-collapse: collapse; font-size: 0.8rem; min-width: 100%; }
 .scrub button.done { background: var(--gold-soft); }
 .scrub button.on { background: var(--gold); }
 @media (prefers-reduced-motion: reduce) { .hp { animation: none; } }
+
+/* Aws's perk, the roles, the Shapeshifter, the Medium */
+.opts3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.4rem; }
+.card.perk { background: linear-gradient(135deg, var(--gold-soft), #f3e8ff); box-shadow: inset 0 0 0 1px var(--gold); }
+.card.perk p { margin: 0.2rem 0 0.5rem; }
+.rolechips { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.4rem; }
+.rolechip { border: 0; border-radius: 99px; padding: 0.35rem 0.7rem; font: inherit; font-size: 0.85rem; background: var(--bg-2); color: var(--muted); box-shadow: inset 0 0 0 1px var(--line); text-decoration: line-through; }
+.rolechip.on { background: var(--gold-soft); color: var(--ink); box-shadow: inset 0 0 0 1px var(--gold); text-decoration: none; }
+.rolechip:disabled { opacity: 1; cursor: default; }
+.roles-guide summary { cursor: pointer; font-weight: 700; }
+.roles-guide[open] summary { margin-bottom: 0.5rem; }
+.card.jobpanel.shape { background: #f3e8ff; }
+.shape-line { background: #f3e8ff; }
+.btn.seance { color: #6b4bc4; }
+.mediummsg { align-items: center; background: #f3e8ff; border-radius: 10px; padding: 0.4rem 0.6rem; box-shadow: inset 0 0 0 1px #d8c8f5; }
+.mediummsg p { margin: 0.1rem 0 0; font-family: var(--serif); }
