@@ -18,6 +18,10 @@ the empty chairs.
   alone in a room with the lights on: they learn whether that person is a killer (and a killer feels someone studying
   them). The Doctor picks a patient each day: if the killer strikes them, they survive (without seeing who did it), and
   the Doctor's autopsy names the exact weapon.
+- **🎭 The Shapeshifter** (5+ players): one of the killers can wear another guest's face for an hour, once a day. Anyone
+  who sees them, even watching them strike, sees that guest, and blames them. The Detective can unmask them, and the
+  dying clue's coat colour is still their own. **🔮 The Medium** (6+ players) reads the ghosts' chat and holds a séance
+  once a day; the dead answer in riddles. The host can switch any special role off in the lobby.
 - **🔔 The emergency bell.** Once a game, from 11 AM, anyone can ring it and call the meeting at once.
 - **📝 A notebook** in the meeting: mark each guest ✅ ⚠️ 🔪 and jot notes (kept on your phone only).
 - **🎬 Replay** at the end: the whole weekend on a map of the house, hour by hour.
@@ -40,7 +44,7 @@ the empty chairs.
 - **The final showdown.** When the killers catch up with the guests there's no instant loss: one last day with no
   meeting, where the killer can strike every hour and any guest alive at dusk wins it for the guests.
 - **Talk and vote.** Two and a half minutes of chat: share your day (the killer can lie about theirs), argue, then vote someone
-  out. Catch every killer to win; if the killers ever match the rest, they win. The dead become ghosts who see
+  out (most votes, and at least half the room; bots always vote, on a hunch if nothing stands out). Catch every killer to win; if the killers ever match the rest, they win. The dead become ghosts who see
   everything and can only talk to each other.
 - **Ways to play:** start a game and send the family the code or link (it starts when everyone taps Ready), find a
   game online (a public queue that starts after 30 seconds, topped up with bots), or play with bots.
