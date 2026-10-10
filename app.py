@@ -15,6 +15,8 @@ logging.basicConfig(level=logging.INFO)
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 app = Flask(__name__)
+import hubguard  # noqa: E402  (the owner's universal switches, kept in Cramly)
+hubguard.install(app, "alibi")
 app.config["TEMPLATES_AUTO_RELOAD"] = True
 
 from game import bp  # noqa: E402  (after load_dotenv)
@@ -43,7 +45,7 @@ def headers(resp):
 
 CSP = "; ".join([
     "default-src 'self'", "script-src 'self'", "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-    "font-src https://fonts.gstatic.com", "img-src 'self' data:", "connect-src 'self'", "object-src 'none'",
+    "font-src https://fonts.gstatic.com", "img-src 'self' data:", "connect-src 'self' https://cramly-twz5.onrender.com", "object-src 'none'",
     "base-uri 'none'", "form-action 'self'", "frame-ancestors 'none'", "manifest-src 'self'",
 ])
 
