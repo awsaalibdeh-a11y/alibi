@@ -60,8 +60,18 @@ def index():
 def manifest():
     body = {"name": "Alibi", "short_name": "Alibi", "description": "A murder party game: one of you is the killer.",
             "start_url": "/", "display": "standalone", "background_color": "#f6efe2", "theme_color": "#f6efe2",
-            "icons": [{"src": "/static/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any"}]}
+            "icons": [{"src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+                      {"src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"},
+                      {"src": "/static/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any"}]}
     return app.response_class(__import__("json").dumps(body), mimetype="application/manifest+json")
+
+
+@app.route("/sw.js")
+def service_worker():
+    resp = app.send_static_file("sw.js")
+    resp.headers["Service-Worker-Allowed"] = "/"
+    resp.headers["Cache-Control"] = "no-cache"
+    return resp
 
 
 @app.route("/healthz")

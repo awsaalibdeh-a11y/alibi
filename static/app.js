@@ -178,6 +178,7 @@ function accept(d) {
     freshScreen = true;
     ui = { ...ui, room: null, take: null, put: false, strike: null, look: false, draft: null };
     if (d.phase === "roles") ui.revealed = false;
+    if (before && !['body', 'showdown'].includes(d.phase)) buzz(BUZZ[d.phase] || [20]);
     const won = d.winner && (d.winner === "killers") === (d.me.role === "killer");
     if (before && d.phase === "over" && won) confetti();
     if (before && ["body", "showdown"].includes(d.phase)) { try { navigator.vibrate?.([90, 60, 180]); } catch { /* ignore */ } }
@@ -190,21 +191,38 @@ function accept(d) {
     const n = (x) => (x?.chat?.length || 0) + (x?.roomchat?.length || 0);
     if (n(d) > n(before)) sfx((d.chat || []).slice((before.chat || []).length).some((m) => m.accuse) ? "gasp" : "msg");
     const incoming = (d.dms || []).filter((m) => m.to === d.me.pid).length - (before.dms || []).filter((m) => m.to === d.me.pid).length;
-    if (incoming > 0) sfx("dm");
+    if (incoming > 0) { sfx("dm"); buzz([25]); }
   }
   if (door) return doors(door, () => { render(); syncVoice(); });
   render();
   syncVoice();
+  syncWake();
 }
 let polling = null;
+/* the little extras that make it feel like an app: a buzz at the big moments, a "reconnecting" pill, and the screen staying awake */
+const BUZZ = { roles: [60], move: [40], room: [25], body: [220, 90, 220], showdown: [220, 90, 220], vote: [30, 40, 30], over: [140] };
+const buzz = (p) => { try { if (navigator.vibrate && sound.on) navigator.vibrate(p); } catch { /* not supported */ } };
+let failures = 0, lock = null;
+function netPill(show) {
+  let el = document.getElementById("net");
+  if (!el) { el = document.createElement("div"); el.id = "net"; el.setAttribute("role", "status"); el.textContent = "📡 Reconnecting…"; document.body.append(el); }
+  el.hidden = !show;
+}
+async function syncWake() {
+  try {
+    if (me && S && S.phase !== "over" && !lock && navigator.wakeLock) { lock = await navigator.wakeLock.request("screen"); lock.addEventListener("release", () => { lock = null; }); }
+    else if ((!me || !S || S.phase === "over") && lock) { await lock.release(); lock = null; }
+  } catch { /* the browser said no: fine */ }
+}
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") syncWake(); });
 async function poll() {
   if (!me) return;
   try {
     const q = new URLSearchParams({ pid: me.pid, token: me.token, v: S?.v ?? "" });
     const r = await fetch(`/api/game/${me.code}?${q}`, { cache: "no-store" });
     if (r.status === 404 || r.status === 403) { const d = await r.json().catch(() => ({})); stopVoice(); me = null; S = null; saveMe(); clearInterval(polling); toast(d.error || "That game is over."); render(); return; }
-    accept(await r.json());
-  } catch { /* offline for a moment: try again next tick */ }
+    accept(await r.json()); failures = 0; netPill(false);
+  } catch { if (++failures >= 3) netPill(true); /* offline for a moment: keep trying */ }
 }
 function startPolling() { clearInterval(polling); polling = setInterval(poll, POLL); poll(); }
 
@@ -944,3 +962,5 @@ function over() {
 if (me) startPolling();
 render();
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && me) poll(); });
+
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => { /* optional */ });

@@ -372,3 +372,5 @@ table.truth { border-collapse: collapse; font-size: 0.8rem; min-width: 100%; }
 .btn.seance { color: #6b4bc4; }
 .mediummsg { align-items: center; background: #f3e8ff; border-radius: 10px; padding: 0.4rem 0.6rem; box-shadow: inset 0 0 0 1px #d8c8f5; }
 .mediummsg p { margin: 0.1rem 0 0; font-family: var(--serif); }
+#net { position: fixed; left: 50%; bottom: calc(14px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 90; background: #2a2118; color: #fff; padding: 9px 18px; border-radius: 99px; font: 600 14px Inter, system-ui, sans-serif; box-shadow: 0 8px 26px rgba(42,33,24,.35); }
+#net[hidden] { display: none; }
