@@ -1,32 +1,31 @@
-/* Alibi: The Wrenmoor Weekend. A manor in daylight: cream paper, white cards, gold and crimson, a typewriter for the labels.
-   Only the murder is dark. */
+/* Alibi: matte black, silver type, one accent colour per map. The same look as the showcase. */
 :root {
-  --bg: #f6efe2;
-  --bg-2: #fffdf8;
-  --bg-3: #f1e7d6;
-  --line: rgba(92, 64, 34, 0.14);
-  --ink: #2a1f16;
-  --ink-2: #4b3a2b;
-  --muted: #7a6650;
-  --gold: #b8862b;
-  --gold-2: #e2b34e;
-  --gold-soft: #fbefd2;
-  --red: #b3261e;
-  --red-soft: #fde7e3;
-  --ok: #2c7a4b;
-  --ok-soft: #e3f4e9;
-  --blue-soft: #e6f0fa;
-  --shadow: 0 1px 2px rgba(70, 45, 20, 0.08), 0 8px 24px -12px rgba(70, 45, 20, 0.25);
-  --type: "Special Elite", "Courier New", monospace;
-  --serif: "Playfair Display", Georgia, serif;
+  --bg: #0a0a0b;
+  --bg-2: #121214;
+  --bg-3: #1a1a1d;
+  --line: rgba(255, 255, 255, 0.09);
+  --ink: #ececf0;
+  --ink-2: #c3c3cb;
+  --muted: #8d8d96;
+  --gold: #c9cad3;
+  --gold-2: #e6e7ee;
+  --gold-soft: #1b1b1f;
+  --red: #e5484d;
+  --red-soft: #2a1519;
+  --ok: #3dd49b;
+  --ok-soft: #12261f;
+  --blue-soft: #14212e;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.5), 0 14px 32px -16px rgba(0, 0, 0, 0.9);
+  --type: Inter, -apple-system, "Segoe UI", Roboto, system-ui, sans-serif;
+  --serif: Inter, -apple-system, "Segoe UI", Roboto, system-ui, sans-serif;
   --sans: Inter, -apple-system, "Segoe UI", Roboto, system-ui, sans-serif;
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
-  color-scheme: light;
+  color-scheme: dark;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; min-height: 100%; }
 body {
-  background: radial-gradient(120% 70% at 50% -10%, #fffaf0 0%, var(--bg) 60%) fixed, var(--bg);
+  background: radial-gradient(120% 70% at 50% -10%, var(--top, #17171b) 0%, var(--bg) 60%) fixed, var(--bg);
   color: var(--ink); font: 400 16px/1.5 var(--sans); -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent;
 }
 button, input, textarea, select { font: inherit; color: inherit; }
@@ -65,8 +64,8 @@ p { margin: 0.45rem 0; }
   background: var(--bg-2); color: var(--ink); font-weight: 700; font-size: 1rem; box-shadow: var(--shadow), inset 0 0 0 1px var(--line); transition: transform 0.12s, background 0.15s; }
 .btn:hover { background: #fff8ea; }
 .btn:active { transform: scale(0.98); }
-.btn.primary { background: linear-gradient(180deg, #edc160, var(--gold-2)); color: #3a2708; box-shadow: 0 8px 20px -10px rgba(184, 134, 43, 0.9), inset 0 -2px 0 rgba(0, 0, 0, 0.08); }
-.btn.primary:hover { background: linear-gradient(180deg, #f2ca6e, #e8bb58); }
+.btn.primary { background: linear-gradient(180deg, color-mix(in srgb, var(--gold-2) 80%, #fff), var(--gold-2)); color: color-mix(in srgb, var(--gold) 28%, #000); box-shadow: 0 8px 20px -10px color-mix(in srgb, var(--gold) 90%, transparent), inset 0 -2px 0 rgba(0, 0, 0, 0.08); }
+.btn.primary:hover { background: linear-gradient(180deg, color-mix(in srgb, var(--gold-2) 65%, #fff), color-mix(in srgb, var(--gold-2) 92%, #fff)); }
 .btn.ghost { background: transparent; box-shadow: none; }
 .btn.block { width: 100%; }
 .btn.sm { min-height: 2.5rem; padding: 0 0.9rem; font-size: 0.9rem; border-radius: 0.8rem; }
@@ -91,7 +90,7 @@ p { margin: 0.45rem 0; }
 
 /* ---------- home ---------- */
 .home { display: grid; gap: 1.2rem; padding-top: 3vh; }
-.hero { display: grid; gap: 0.5rem; padding: 1.4rem 1.2rem; border-radius: 1.4rem; background: linear-gradient(160deg, #fff7e3, #f3dfb6); box-shadow: var(--shadow); }
+.hero { display: grid; gap: 0.5rem; padding: 1.4rem 1.2rem; border-radius: 1.4rem; background: linear-gradient(160deg, var(--hero1, #fff7e3), var(--hero2, #f3dfb6)); box-shadow: var(--shadow); transition: background .4s; }
 .logo { display: flex; align-items: center; gap: 0.6rem; }
 .logo svg { width: 2.4rem; height: 2.4rem; }
 .tagline { font-family: var(--type); color: var(--ink-2); font-size: 1.02rem; }
@@ -116,7 +115,7 @@ select.input { appearance: auto; }
 .face.skip { place-items: center; background: var(--bg-3); box-shadow: none; color: var(--muted); font-size: 1.2rem; }
 
 /* ---------- lobby ---------- */
-.codecard { display: grid; justify-items: center; gap: 0.4rem; text-align: center; background: linear-gradient(160deg, #fff7e3, #f6e6c2); }
+.codecard { display: grid; justify-items: center; gap: 0.4rem; text-align: center; background: linear-gradient(160deg, var(--hero1, #fff7e3), var(--hero2, #f6e6c2)); }
 .bigcode { font-family: var(--type); font-size: 3.2rem; letter-spacing: 0.25em; color: #8a5f12; line-height: 1; padding-left: 0.25em; }
 .plist { display: grid; gap: 0.45rem; }
 .prow { display: flex; align-items: center; gap: 0.6rem; min-height: 3rem; }
@@ -374,3 +373,70 @@ table.truth { border-collapse: collapse; font-size: 0.8rem; min-width: 100%; }
 .mediummsg p { margin: 0.1rem 0 0; font-family: var(--serif); }
 #net { position: fixed; left: 50%; bottom: calc(14px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 90; background: #2a2118; color: #fff; padding: 9px 18px; border-radius: 99px; font: 600 14px Inter, system-ui, sans-serif; box-shadow: 0 8px 26px rgba(42,33,24,.35); }
 #net[hidden] { display: none; }
+
+/* ---------- maps: choose where the murder happens ---------- */
+.mappick { display: grid; gap: .5rem; }
+.maprail { display: flex; gap: .6rem; overflow-x: auto; padding: .15rem .1rem .6rem; scroll-snap-type: x proximity; scrollbar-width: none; margin: 0 -.2rem; }
+.maprail::-webkit-scrollbar { display: none; }
+.mapcard { flex: 0 0 8.6rem; scroll-snap-align: start; display: grid; gap: .15rem; justify-items: start; text-align: left; padding: .8rem .85rem; border-radius: 1.1rem; background: var(--bg-2); border: 2px solid transparent; box-shadow: var(--shadow); transition: transform .15s var(--ease), border-color .15s; }
+.mapcard:active { transform: scale(.97); }
+.mapcard .em { font-size: 1.9rem; line-height: 1; margin-bottom: .2rem; }
+.mapcard b { font-family: var(--serif); font-size: 1rem; line-height: 1.15; }
+.mapcard small { color: var(--muted); font-size: .78rem; line-height: 1.25; }
+.mapcard.on { border-color: var(--gold); background: var(--gold-soft); }
+.maptag { margin: 0; color: var(--ink-2); font-size: .9rem; }
+.mapdots { display: flex; gap: .4rem; flex-wrap: wrap; }
+.mapdots button { width: 2.6rem; height: 2.6rem; border-radius: .8rem; background: var(--bg-3); border: 2px solid transparent; font-size: 1.3rem; }
+.mapdots button.on { border-color: var(--gold); background: var(--gold-soft); }
+
+/* ---------- matte dark: the showcase look. These override the older cream-paper colours above. ---------- */
+.display { font-weight: 300; letter-spacing: -0.04em; background: linear-gradient(180deg, #fff 10%, #a9a9b2 100%); -webkit-background-clip: text; background-clip: text; color: transparent; padding-bottom: 0.08em; }
+.h2 { font-weight: 500; letter-spacing: -0.02em; }
+.label { color: var(--muted); letter-spacing: 0.18em; font-weight: 600; font-size: 0.72rem; }
+.tagline { color: var(--ink-2); font-size: 1rem; }
+.btn:hover { background: var(--bg-3); }
+.btn.primary { background: var(--ink); color: #0a0a0b; box-shadow: none; }
+.btn.primary:hover { background: #fff; }
+.tipbtn { color: #8ab4ff; }
+.bar { background: rgba(10, 10, 11, 0.9); }
+.tag.clock { background: var(--gold-soft); color: var(--gold-2); }
+.howto li::before { color: var(--gold-2); }
+.bigcode { color: var(--ink); font-weight: 300; }
+.hero, .codecard, .culprit { background: linear-gradient(160deg, var(--hero1, #1b1b1f), var(--hero2, #0f0f11)); }
+.prologue, .paper { background: var(--bg-2); box-shadow: var(--shadow), inset 0 0 0 1px var(--line); }
+.rolecard.guest { background: radial-gradient(circle at 50% 0, color-mix(in srgb, var(--gold) 20%, #151517), #0f0f11); box-shadow: 0 0 0 2px var(--gold), var(--shadow); }
+.beat { color: var(--ink-2); }
+.carry { color: var(--gold-2); }
+.gone { color: #ffb3bd; }
+.tookchip { color: #ffb3bd; }
+.tookchip.put { color: #7fe0b5; }
+.cmsg > div { box-shadow: inset 0 0 0 1px var(--line); }
+.ghost { background: #16202b; color: #a9c3e4; }
+.tabs button.on { background: var(--ink); color: #0a0a0b; }
+.claimrow { color: var(--gold-2); }
+.face { background: linear-gradient(180deg, color-mix(in srgb, var(--c) 42%, #1c1c20), color-mix(in srgb, var(--c) 18%, #101012)); }
+.sheet-scrim { background: rgba(0, 0, 0, 0.62); backdrop-filter: none; }
+.sheet { background: var(--bg-2); box-shadow: 0 -20px 60px rgba(0, 0, 0, 0.7), inset 0 1px 0 var(--line); }
+.toast { background: #ececf0; color: #0a0a0b; }
+.hourdots i { background: rgba(255, 255, 255, 0.2); }
+.doors::before { background: rgba(0, 0, 0, 0.55); }
+.door { background: repeating-linear-gradient(90deg, #1b1b1f 0 22px, #17171a 22px 24px, #1e1e22 24px 46px), #1b1b1f; box-shadow: inset 0 0 0 6px #0f0f11, inset 0 0 40px rgba(0, 0, 0, 0.6), 0 0 30px rgba(0, 0, 0, 0.6); }
+.door .panel { box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.06), inset 0 0 22px rgba(0, 0, 0, 0.5); }
+.door .knob { background: radial-gradient(circle at 35% 35%, #fff, #b9b9c2 55%, #6b6b74); }
+.plaque { background: var(--bg-2); color: var(--ink); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6), inset 0 0 0 1px var(--line); }
+.card.haunt { background: #15131c; box-shadow: inset 0 0 0 1px #2a2640; }
+.ballot { background: var(--bg-3); }
+.gazette { background: var(--bg-2); color: var(--ink); box-shadow: var(--shadow), inset 0 0 0 1px var(--line); }
+.gazette .masthead { border-bottom: 3px double var(--ink-2); }
+.gazette .dateline { border-bottom: 1px solid var(--line); }
+.notemsg { background: var(--bg-2); box-shadow: inset 0 0 0 1px var(--line); }
+.jobcard { background: var(--bg-3); }
+.optbtn.detect.on { background: #14212e; }
+.card.perk { background: linear-gradient(135deg, var(--gold-soft), #1a1426); }
+.card.jobpanel.shape, .shape-line, .mediummsg { background: #1b1428; box-shadow: inset 0 0 0 1px #2e2347; }
+.btn.seance { color: #b79bff; }
+#net { background: #ececf0; color: #0a0a0b; }
+.maprail { color: var(--ink); }
+.mapcard { box-shadow: inset 0 0 0 1px var(--line); }
+.mapcard.on { background: var(--gold-soft); }
+.mapdots button { box-shadow: inset 0 0 0 1px var(--line); }

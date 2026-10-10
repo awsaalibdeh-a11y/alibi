@@ -1,4 +1,4 @@
-# Alibi: The Wrenmoor Weekend
+# Alibi
 
 A murder party game where **the killer is one of the players**, each on their own phone. 4 to 8 players; bots fill
 the empty chairs.
@@ -51,6 +51,15 @@ the empty chairs.
 - **Bots** move around, pick things up, hunt (if they're the killer), post their day, argue in the chat with AI
   (plain lines if AI is off) and vote on what they saw against what people claimed.
 - **The end** shows every role and the whole day, hour by hour, for everyone.
+
+## Maps
+
+Five places to commit a murder: **The Wrenmoor Weekend** (country-house manor), **The Midnight Express** (luxury night train),
+**Frostline Lodge** (snowed-in ski lodge), **The Grand Marlowe** (1920s seaside hotel) and **Station Helios** (space station).
+Pick one on the home screen (or 🎲 for a surprise); the host can change it in the lobby. A map is only data (`maps.py`:
+six rooms, twelve things to pick up, twelve characters, ten story beats and its own headlines and colours), so the rules
+never change. Room ids stay the same six slots (the `garden` slot is the exposed one the weather locks), and
+`tests/test_maps.py` checks that every map is complete and plays a whole bot game on each.
 
 ## How it works
 

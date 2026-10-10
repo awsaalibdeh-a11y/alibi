@@ -59,7 +59,7 @@ def index():
 @app.route("/manifest.webmanifest")
 def manifest():
     body = {"name": "Alibi", "short_name": "Alibi", "description": "A murder party game: one of you is the killer.",
-            "start_url": "/", "display": "standalone", "background_color": "#f6efe2", "theme_color": "#f6efe2",
+            "start_url": "/", "display": "standalone", "background_color": "#0a0a0b", "theme_color": "#0a0a0b",
             "icons": [{"src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
                       {"src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"},
                       {"src": "/static/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any"}]}

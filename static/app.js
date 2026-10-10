@@ -32,7 +32,7 @@ function toast(msg, ms = 2800) {
   t.textContent = msg; t.hidden = false;
   clearTimeout(toast.t); toast.t = setTimeout(() => { t.hidden = true; }, ms);
 }
-const LENS = '<svg viewBox="0 0 64 64"><circle cx="27" cy="27" r="13" fill="none" stroke="#b8862b" stroke-width="5"/><path d="M36.5 36.5 L50 50" stroke="#b8862b" stroke-width="7" stroke-linecap="round"/><circle cx="27" cy="27" r="4" fill="#c0392b"/></svg>';
+const LENS = '<svg viewBox="0 0 64 64"><circle cx="27" cy="27" r="13" fill="none" style="stroke:var(--gold)" stroke-width="5"/><path d="M36.5 36.5 L50 50" style="stroke:var(--gold)" stroke-width="7" stroke-linecap="round"/><circle cx="27" cy="27" r="4" fill="#c0392b"/></svg>';
 
 /* a face drawn from a name: the same player always looks the same */
 function portrait(name) {
@@ -123,7 +123,7 @@ function doorFor(a, b) {
   if (b.phase === "room" && a.phase === "move" && b.here) return { label: place(b.here.room), sub: b.here.dark ? "You push the door open… into pitch darkness." : "You push the door open…" };
   if (b.phase === "body" && a.phase === "move" && b.body) return { label: `${b.body.room}`, sub: "You push the door open… and freeze." };
   if (a.phase === "room" && ["move", "body", "quiet", "showdown"].includes(b.phase)) return { label: "🚪 Back to the hall", sub: "The door clicks shut behind you." };
-  if (a.phase === "lobby" && b.phase === "roles") return { label: "🏰 Wrenmoor Manor", sub: "The weekend begins." };
+  if (a.phase === "lobby" && b.phase === "roles") return { label: (b.map || DEFAULT_MAP).door_label, sub: (b.map || DEFAULT_MAP).begin_sub };
   return null;
 }
 /** Two wooden doors swing shut over the screen, the next screen is drawn behind them, and they swing open onto it. */
@@ -324,8 +324,42 @@ async function onSignal(from, data) {
 function dropPeer(pid) { const pr = voice.peers.get(pid); if (!pr) return; try { pr.pc.close(); } catch { /* ignore */ } pr.audio.srcObject = null; voice.peers.delete(pid); }
 
 /* ---------- rendering, keeping what you're typing ---------- */
+/* ---------- maps: where the murder happens ---------- */
+const DEFAULT_MAP = { id: "wrenmoor", emoji: "🏰", title: "The Wrenmoor Weekend", short: "Country-house manor", tagline: "A weekend at the manor. A will to be read at dusk. And one of you has decided not to wait.",
+  place: "Wrenmoor", prize: "the manor", gazette: "The Wrenmoor Gazette", door_label: "🏰 Wrenmoor Manor", begin_sub: "The weekend begins.", enter_sub: "The front doors creak open…",
+  leave_label: "Farewell, Wrenmoor", leave_sub: "The front doors close behind you.", theme: null };
+let MAPLIST = (() => { try { const c = JSON.parse(localStorage.getItem("alibi.maps") || "null"); return Array.isArray(c) && c.length ? c : [DEFAULT_MAP]; } catch { return [DEFAULT_MAP]; } })();   // remembered, so the right look is there before the list arrives
+let pickedMap = (() => { try { return localStorage.getItem("alibi.map") || "wrenmoor"; } catch { return "wrenmoor"; } })();
+const mapById = (id) => MAPLIST.find((m) => m.id === id) || null;
+/** The map in play, or the one you've picked on the home screen. */
+const curMap = () => ({ ...DEFAULT_MAP, ...(S?.map || (pickedMap !== "random" ? mapById(pickedMap) : null) || {}) });
+const THEME_VARS = { bg: "--bg", bg3: "--bg-3", top: "--top", gold: "--gold", gold2: "--gold-2", soft: "--gold-soft", hero1: "--hero1", hero2: "--hero2" };
+function applyTheme(t) {
+  const root = document.documentElement.style;
+  for (const [k, v] of Object.entries(THEME_VARS)) { if (t && t[k]) root.setProperty(v, t[k]); else root.removeProperty(v); }
+  const meta = document.querySelector('meta[name="theme-color"]'); if (meta) meta.content = t?.bg || "#0a0a0b";
+}
+fetch("/api/maps").then((r) => r.json()).then((d) => { if (d.maps?.length) { MAPLIST = d.maps; try { localStorage.setItem("alibi.maps", JSON.stringify(d.maps)); } catch { /* ignore */ } render(); showPicked(); } }).catch(() => { /* the original map still works */ });
+function pickMap(id) { pickedMap = id; try { localStorage.setItem("alibi.map", id); } catch { /* ignore */ } render(); showPicked(); }
+/** The cards on the home screen. */
+function mapPicker() {
+  const cards = [...MAPLIST, { id: "random", emoji: "🎲", title: "Surprise me", short: "A random map", tagline: "A different place every time." }];
+  const m = pickedMap === "random" ? cards[cards.length - 1] : (mapById(pickedMap) || DEFAULT_MAP);
+  return h("div", { class: "mappick" }, h("span", { class: "label" }, "Choose a map"),
+    h("div", { class: "maprail", role: "listbox", "aria-label": "Maps" }, cards.map((c) => h("button", { class: "mapcard" + (c.id === pickedMap ? " on" : ""), type: "button", role: "option", "aria-selected": String(c.id === pickedMap), onClick: () => pickMap(c.id) },
+      h("span", { class: "em" }, c.emoji), h("b", {}, c.title.replace(/^The /, "")), h("small", {}, c.short)))),
+    h("p", { class: "maptag" }, m.tagline));
+}
+const showPicked = () => setTimeout(() => document.querySelector(".mapcard.on")?.scrollIntoView({ inline: "center", block: "nearest" }), 40);
+/** In the lobby the host can change it with one tap. */
+function mapDots() {
+  return h("div", { class: "mapdots", role: "group", "aria-label": "Change the map" }, [...MAPLIST, { id: "random", emoji: "🎲", title: "Surprise me" }].map((c) =>
+    h("button", { type: "button", class: S.map?.id === c.id ? "on" : "", title: c.title, "aria-label": c.title, onClick: () => act("map", { id: c.id }) }, c.emoji)));
+}
+
 function render() {
-  if (doorState.busy) return;                                    // the doors are shut: draw the next screen when they open
+  if (doorState.busy) return;
+  applyTheme(curMap().theme);                                    // the doors are shut: draw the next screen when they open
   const active = document.activeElement?.dataset?.keep || null;
   const kept = Object.fromEntries([...document.querySelectorAll("[data-keep]")].map((el) => [el.dataset.keep, el.value]));
   const logs = Object.fromEntries([...document.querySelectorAll("[data-log]")].map((el) => [el.dataset.log, el.scrollHeight - el.scrollTop - el.clientHeight < 80]));
@@ -395,20 +429,22 @@ function home() {
     if (!n) { name.focus(); toast("Type your name first."); return; }
     try { localStorage.setItem("alibi.name", n); } catch { /* ignore */ }
     try {
-      const d = await post("/api/play", { name: n, mode, ...extra });
+      const d = await post("/api/play", { name: n, mode, ...(mode === "create" || mode === "bots" ? { map: pickedMap } : {}), ...extra });
       me = { code: d.code, pid: d.pid, token: d.token };
       saveMe();
       history.replaceState(null, "", "/");
       S = null;
-      doors({ label: "🏰 Wrenmoor Manor", sub: "The front doors creak open…" }, () => { render(); startPolling(); });
+      const pm = pickedMap === "random" ? { door_label: "🎲 Somewhere new", enter_sub: "Where will it happen…" } : curMap();
+      doors({ label: pm.door_label, sub: pm.enter_sub }, () => { render(); startPolling(); });
     } catch (e) { toast(e.message, 4000); }
   };
   const join = () => { const c = code.value.trim().toUpperCase(); if (c.length !== 4) { toast("Game codes have 4 letters."); code.focus(); return; } go("join", { code: c }); };
   code.addEventListener("keydown", (e) => { if (e.key === "Enter") join(); });
   return h("section", { class: "home" },
-    h("div", { class: "hero" }, h("div", { class: "logo" }, h("span", { html: LENS }), h("span", { class: "label" }, "The Wrenmoor Weekend")),
+    h("div", { class: "hero" }, h("div", { class: "logo" }, h("span", { html: LENS }), h("span", { class: "label" }, pickedMap === "random" ? "A surprise location" : curMap().title)),
       h("h1", { class: "display" }, "Alibi"),
-      h("p", { class: "tagline" }, "A weekend at the manor. A will to be read at dusk. And one of you has decided not to wait.")),
+      h("p", { class: "tagline" }, pickedMap === "random" ? "Somewhere new every time. A secret to keep. And one of you has decided not to wait." : curMap().tagline)),
+    mapPicker(),
     joinCode ? h("div", { class: "card invite" }, h("b", {}, `You're invited to game ${joinCode}.`), h("p", { class: "muted small" }, "Type your name and tap Join.")) : null,
     h("label", { class: "field" }, h("span", {}, "Your name"), name), perk,
     h("div", { class: "stack" },
@@ -456,6 +492,8 @@ function lobby() {
       : h("div", { class: "card codecard" }, h("span", { class: "label" }, "Game code"), h("div", { class: "bigcode" }, S.code),
         h("p", { class: "muted small" }, "Everyone opens this site on their own phone and joins with the code, or with the link."),
         h("button", { class: "btn primary", type: "button", onClick: share }, "📤 Send the link")),
+    h("div", { class: "card" }, h("span", { class: "label" }, "Map"), h("div", { class: "row" }, h("b", {}, `${curMap().emoji} ${curMap().title}`)),
+      !S.public && S.me.host ? mapDots() : h("p", { class: "muted small" }, curMap().tagline)),
     h("div", { class: "card" }, h("span", { class: "label" }, `Guests · ${S.players.length} of 8`),
       h("div", { class: "plist" }, S.players.map((p) => h("div", { class: "prow" }, face(p), h("b", {}, p.name, p.pid === S.me.pid ? " (you)" : ""),
         p.bot ? h("span", { class: "tag" }, "🤖 bot") : p.host ? h("span", { class: "tag" }, "host") : null, p.voice ? h("span", { class: "tag" }, "🎙️") : null, h("span", { class: "spacer" }),
@@ -479,7 +517,7 @@ function lobby() {
 async function leave() {
   try { await post(`/api/game/${me.code}`, { pid: me.pid, token: me.token, type: "leave" }); } catch { /* ignore */ }
   clearInterval(polling);
-  doors({ label: "Farewell, Wrenmoor", sub: "The front doors close behind you." }, () => {
+  doors({ label: curMap().leave_label, sub: curMap().leave_sub }, () => {
     stopVoice();
     me = null; S = null; ui.dm = null; saveMe(); render();
   });
@@ -489,7 +527,7 @@ async function leave() {
 function roles() {
   const killer = S.me.role === "killer";
   const fellow = S.players.filter((p) => p.role === "killer" && p.pid !== S.me.pid);
-  return h("section", { class: "stack" }, bar("The Wrenmoor Weekend"),
+  return h("section", { class: "stack" }, bar(curMap().title),
     h("div", { class: "card prologue" }, h("span", { class: "label" }, "Prologue"), h("p", { class: "lead" }, S.prologue)),
     h("div", { class: "card charcard" }, face(who(S.me.pid), "big"), h("div", {}, h("span", { class: "label" }, "You are playing"), h("h2", { class: "h2" }, S.me.char?.title), h("p", {}, S.me.char?.blurb))),
     !ui.revealed ? h("button", { class: "btn primary block", type: "button", onClick: () => { ui.revealed = true; render(); } }, "Cover your screen, then tap to see your secret")
@@ -567,7 +605,7 @@ function gazette() {
   const g = S.gazette;
   if (!g || ui.paperShut === `${S.day}`) return null;
   return h("div", { class: "gazette" }, h("button", { class: "ibtn close", type: "button", "aria-label": "Fold the paper", onClick: () => { ui.paperShut = `${S.day}`; render(); } }, "✕"),
-    h("div", { class: "masthead" }, "The Wrenmoor Gazette"), h("div", { class: "dateline" }, `Morning of day ${S.day} · One penny`),
+    h("div", { class: "masthead" }, curMap().gazette), h("div", { class: "dateline" }, `Morning of day ${S.day} · One penny`),
     h("h2", {}, g.headline), g.lines.map((l) => h("p", {}, l)));
 }
 /** The killer's trick, once a day: plunge a room into darkness for this hour. Everyone sees the lights go. */
@@ -733,7 +771,7 @@ function bodyCard(compact = false) {
 }
 function body() {
   return h("section", { class: "stack" }, bar(`Day ${S.day}`),
-    h("div", { class: "scream" }, h("span", { class: "label" }, "A scream rings through Wrenmoor"), h("h1", { class: "display" }, `${S.body?.victim || "Someone"} is dead.`)),
+    h("div", { class: "scream" }, h("span", { class: "label" }, `A scream rings through ${curMap().place}`), h("h1", { class: "display" }, `${S.body?.victim || "Someone"} is dead.`)),
     ghostBanner(), bodyCard(), survivors(), dayLog(), storyLog(), h("p", { class: "muted small center" }, "The meeting starts in ", timer(S.deadline)));
 }
 function quiet() {
@@ -747,7 +785,7 @@ function showdown() {
   return h("section", { class: "stack" }, bar("The final showdown"),
     h("div", { class: "scream" }, h("span", { class: "label" }, "The killers have caught up"), h("h1", { class: "display" }, "One last day.")),
     h("div", { class: "card" }, S.me.alive
-      ? (S.me.role === "killer" ? h("p", {}, "No more meetings. Catch every guest alone before dusk and the manor is yours.") : h("p", {}, "No more meetings, no more votes. Survive until dusk and the guests win. Don't let yourself be caught alone with the killer."))
+      ? (S.me.role === "killer" ? h("p", {}, `No more meetings. Catch every guest alone before dusk and ${curMap().prize} is yours.`) : h("p", {}, "No more meetings, no more votes. Survive until dusk and the guests win. Don't let yourself be caught alone with the killer."))
       : h("p", {}, "Watch from beyond: the last day decides everything.")),
     h("div", { class: "row center" }, guests.map((p) => face(p))), h("p", { class: "muted small center" }, "The day begins in ", timer(S.deadline)));
 }

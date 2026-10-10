@@ -83,6 +83,50 @@ MIN_PLAYERS, MAX_PLAYERS, QUEUE_SIZE = 4, 8, 6
 T = {"countdown": 4, "roles": 14, "move": 20, "room": 60, "body": 12, "quiet": 8, "talk": 150, "vote": 35, "result": 9, "queue": 30}
 ROOMS_FOR = {4: 3, 5: 4, 6: 4, 7: 5, 8: 6}                            # guests -> rooms: few enough that people keep meeting
 ROOM_ORDER = ["library", "kitchen", "garden", "study", "ballroom", "cellar"]
+
+# ---------- maps: Wrenmoor is the original; the others live in maps.py. A game remembers its map, and the world below is swapped to match ----------
+import copy as _copy
+from maps import MAPS as _MORE_MAPS
+MAPS = {"wrenmoor": {
+    "id": "wrenmoor", "emoji": "🏰", "title": "The Wrenmoor Weekend", "short": "Country-house manor", "place": "Wrenmoor", "prize": "the manor",
+    "tagline": "A weekend at the manor. A will to be read at dusk. And one of you has decided not to wait.",
+    "gazette": "The Wrenmoor Gazette", "ejected": "THROWN OUT OF WRENMOOR", "quiet_head": "A QUIET DAY AT THE MANOR…",
+    "quiet_line": "No bodies, no verdict. Police baffled; butler unavailable for comment.", "new_day": "A new day at Wrenmoor. Nobody slept well.",
+    "door_label": "🏰 Wrenmoor Manor", "begin_sub": "The weekend begins.", "enter_sub": "The front doors creak open…",
+    "leave_label": "Farewell, Wrenmoor", "leave_sub": "The front doors close behind you.",
+    "prologue": PROLOGUE, "rooms": _copy.deepcopy(ROOMS), "kinds": dict(KIND), "characters": list(CHARACTERS), "beats": _copy.deepcopy(BEATS)}}
+MAPS.update(_copy.deepcopy(_MORE_MAPS))
+CURRENT = {"id": "wrenmoor"}
+MAP_KEYS = ("id", "emoji", "title", "short", "place", "prize", "tagline", "gazette", "door_label", "begin_sub", "enter_sub", "leave_label", "leave_sub", "theme")
+
+
+def use_map(g):
+    """Point the world (rooms, things, characters, story beats) at this game's map. Everything runs under LOCK, so swapping in place is safe."""
+    global PROLOGUE
+    mid = g.get("map") if g.get("map") in MAPS else "wrenmoor"
+    if CURRENT["id"] == mid:
+        return
+    m = MAPS[mid]
+    ROOMS[:] = _copy.deepcopy(m["rooms"])
+    ROOM.clear(); ROOM.update({r["id"]: r for r in ROOMS})
+    HOME.clear(); HOME.update({item: r["id"] for r in ROOMS for item in r["items"]})
+    KIND.clear(); KIND.update(m["kinds"])
+    CHARACTERS[:] = m["characters"]
+    BEATS[:] = _copy.deepcopy(m["beats"])
+    PROLOGUE = m["prologue"]
+    CURRENT["id"] = mid
+
+
+def M(key):
+    """A word of flavour from the current map."""
+    return MAPS[CURRENT["id"]].get(key) or MAPS["wrenmoor"].get(key, "")
+
+
+def pick_map(want):
+    """What the player asked for: a map id, 'random', or nothing (the original)."""
+    if want == "random":
+        return random.choice(list(MAPS))
+    return want if want in MAPS else "wrenmoor"
 REACTIONS = ["👍", "😂", "😱", "🤔", "🔪", "👀"]
 HAUNTS = ["👻", "🔪", "👀", "🕯️", "❄️", "❓"]                           # what a ghost can send rattling through a room
 HUMAN_KILLER_WEIGHT = 2.5                                            # people get the knife more often than bots do
@@ -118,11 +162,11 @@ def _cleanup():
         del GAMES[c]
 
 
-def new_game(public=False):
+def new_game(public=False, map_id="wrenmoor"):
     _cleanup()
     g = {"code": _code(), "public": public, "created": now(), "touched": now(), "v": 0, "phase": "lobby", "deadline": None,
          "players": [], "host": None, "day": 0, "hour": 0, "days": [], "items": {}, "carry": {}, "winner": None, "start_at": None,
-         "dms": [], "signals": {}}
+         "dms": [], "signals": {}, "map": map_id if map_id in MAPS else "wrenmoor"}
     GAMES[g["code"]] = g
     return g
 
@@ -203,6 +247,7 @@ def name_of(g, pid):
 
 # ---------- starting ----------
 def start(g):
+    use_map(g)
     while len(g["players"]) < MIN_PLAYERS:
         add_bot(g)
     n = len(g["players"])
@@ -282,14 +327,14 @@ def gazette(g, d):
         lines.append(f"{name_of(g, k['victim'])} ({player(g, k['victim'])['char']['title']}) found dead in the {ROOM[k['room']]['name']}: {CAUSE[KIND[k['weapon']]]}.")
     if ej:
         p = player(g, ej)
-        head = f"{p['char']['title'].upper()} THROWN OUT OF WRENMOOR"
+        head = f"{p['char']['title'].upper()} {M('ejected')}"
         lines.append(f"{p['name']} was voted out by the guests, " + ("and was a killer after all!" if p["role"] == "killer" else "and was innocent. The killer is still among us."))
     elif k:
         head = f"MURDER IN THE {ROOM[k['room']]['name'].upper()}!"
         lines.append("The guests couldn't agree on a culprit." if d.get("tally") else "Nobody was voted out.")
     else:
-        head = "A QUIET DAY AT THE MANOR…"
-        lines.append("No bodies, no verdict. Police baffled; butler unavailable for comment.")
+        head = M("quiet_head")
+        lines.append(M("quiet_line"))
     for x in d.get("saves", []):
         lines.append(f"{name_of(g, x['victim'])} survived an attack in the {ROOM[x['room']]['name']}. The Doctor is said to be pleased.")
     if d["missing"]:
@@ -309,7 +354,7 @@ def new_day(g, showdown=False):
     for i, b in enumerate(random.sample(fits, len(HOURS))):
         b = dict(b)
         if i == 0:                                                    # nothing strange at 9 AM
-            b = {"text": BEATS[0]["text"] if g["day"] == 1 else "A new day at Wrenmoor. Nobody slept well.", "fx": None}
+            b = {"text": BEATS[0]["text"] if g["day"] == 1 else M("new_day"), "fx": None}
         if b["fx"] == "dark":
             b["room"] = random.choice([r for r in room_ids(g) if r != "garden"])
             b["text"] = b["text"].format(room=ROOM[b["room"]]["name"])
@@ -843,6 +888,7 @@ def my_day(g, p, d):
 
 
 def view(g, p):
+    use_map(g)
     d = today(g)
     dead = not p["alive"]
     over = g["phase"] == "over"
@@ -866,7 +912,7 @@ def view(g, p):
     v = {"code": g["code"], "public": g["public"], "v": g["v"], "now": now(), "phase": g["phase"], "deadline": g["deadline"], "start_at": g["start_at"],
          "day": g["day"], "hour": g["hour"], "roleInfo": {j: list(x) for j, x in JOBS.items()}, "rolesOn": list(g.get("roles", JOBS)),
          "cast": {"killers": sum(q.get("role") == "killer" for q in g["players"]), "jobs": [j for j in JOBS if any(q.get("job") == j for q in g["players"])]}
-         if g["phase"] != "lobby" else None, "hours": HOURS, "rooms": rooms_of(g), "showdown": bool(today(g) and today(g).get("showdown")), "players": pub, "winner": g["winner"], "prologue": PROLOGUE,
+         if g["phase"] != "lobby" else None, "hours": HOURS, "rooms": rooms_of(g), "showdown": bool(today(g) and today(g).get("showdown")), "players": pub, "winner": g["winner"], "prologue": PROLOGUE, "map": {k: MAPS[CURRENT["id"]].get(k) for k in MAP_KEYS},
          "me": {"pid": p["pid"], "name": p["name"], "role": p["role"], "alive": p["alive"], "host": p["pid"] == g["host"], "carrying": g["carry"].get(p["pid"]),
                 "ejected": p.get("ejected", False), "char": p.get("char"), "voice": p.get("voice", False), "searched": p.get("searched", False),
                 "noted": p.get("noted", False), "mission": mission(g, p) if g["phase"] != "lobby" else None,
@@ -1038,6 +1084,7 @@ def truth(g):
 # ---------- the clock ----------
 def tick(g):
     """Move a game on: expired clocks, everyone having acted, bots' planned chat. Called on every request."""
+    use_map(g)
     t = now()
     if g["phase"] == "lobby":
         if g["public"] and g["start_at"] is not None and t >= g["start_at"]:
@@ -1532,6 +1579,11 @@ def _ice():
     return servers
 
 
+@bp.get("/api/maps")
+def maps():
+    return jsonify(maps=[{k: MAPS[m].get(k) for k in MAP_KEYS} for m in MAPS])
+
+
 @bp.get("/api/status")
 def status():
     return jsonify(ai=bool(os.environ.get("OPENAI_API_KEY")), games=len(GAMES), queue=bool(QUEUE["code"] and QUEUE["code"] in GAMES), ice=_ice(),
@@ -1544,14 +1596,14 @@ def play():
     name, mode = _clean_name(body.get("name")), body.get("mode")
     with LOCK:
         if mode == "bots":
-            g = new_game()
+            g = new_game(map_id=pick_map(body.get("map")))
             p = add_player(g, name)
             set_want(p, body.get("want"))
             for _ in range(max(3, min(7, int(body.get("bots") or 5)))):
                 add_bot(g)
             start(g)
         elif mode == "create":
-            g = new_game()
+            g = new_game(map_id=pick_map(body.get("map")))
             p = add_player(g, name)
             set_want(p, body.get("want"))
         elif mode == "join":
@@ -1567,7 +1619,7 @@ def play():
         elif mode == "queue":
             g = GAMES.get(QUEUE["code"]) if QUEUE["code"] else None
             if not g or g["phase"] != "lobby" or len(g["players"]) >= MAX_PLAYERS:
-                g = new_game(public=True)
+                g = new_game(public=True, map_id=pick_map("random"))
                 QUEUE["code"] = g["code"]
             p = add_player(g, name)
             set_want(p, body.get("want"))
@@ -1591,6 +1643,7 @@ def _auth(code):
     if not p or p["token"] != body.get("token"):
         return None, None, _err("You're not in this game.", 403)
     p["seen"] = now()
+    use_map(g)
     return g, p, None
 
 
@@ -1632,6 +1685,10 @@ def act(code):
             return jsonify(ok=True)
         if kind == "voice":
             p["voice"] = bool(body.get("on"))
+            bump(g)
+        elif kind == "map" and g["phase"] == "lobby" and p["pid"] == g["host"]:
+            g["map"] = pick_map(body.get("id"))
+            use_map(g)
             bump(g)
         elif kind == "ready" and g["phase"] == "lobby":
             p["ready"] = bool(body.get("on"))
