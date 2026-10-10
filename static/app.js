@@ -197,6 +197,7 @@ function accept(d) {
   render();
   syncVoice();
   syncWake();
+  queueFx(before, d);
 }
 let polling = null;
 /* the little extras that make it feel like an app: a buzz at the big moments, a "reconnecting" pill, and the screen staying awake */
@@ -355,6 +356,67 @@ const showPicked = () => setTimeout(() => document.querySelector(".mapcard.on")?
 function mapDots() {
   return h("div", { class: "mapdots", role: "group", "aria-label": "Change the map" }, [...MAPLIST, { id: "random", emoji: "🎲", title: "Surprise me" }].map((c) =>
     h("button", { type: "button", class: S.map?.id === c.id ? "on" : "", title: c.title, "aria-label": c.title, onClick: () => act("map", { id: c.id }) }, c.emoji)));
+}
+
+/* ---------- the hand grabbing the thing, the blade coming down ---------- */
+const WK_ICON = { sharp: "🔪", blunt: "🔨", cord: "🪢" };
+const ICON_BY_WORD = [[/knife|blade|axe|cleaver|shears|opener|punch|scalpel|scraper|torch|cutter|pruning/i, "🔪"], [/rope|cord|wire|belt|scarf|cravat|chain|cable|strap|band|sheet|line/i, "🪢"]];
+const itemIcon = (name, wk) => WK_ICON[wk] || ICON_BY_WORD.find(([re]) => re.test(name || ""))?.[1] || "🔨";
+const fxQueue = [];
+let fxRunning = false;
+const calm = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+const playerByName = (n) => S?.players?.find((q) => q.name === n) || null;
+const faceOf = (n, cls) => { const q = playerByName(n); return q ? face(q, cls) : h("span", { class: "face " + (cls || ""), style: { "--c": "#8d8d96" } }, "🙂"); };
+/** What to show for one hour's result: the hand taking something, and any strike you did, suffered or witnessed. */
+function fxFor(entry) {
+  const out = [];
+  for (const it of entry.items || []) if (it.who === "You" && it.kind === "take") out.push({ type: "take", item: it.item, wk: it.wk, sneak: it.sneak });
+  for (const x of entry.strikes || []) out.push({ type: "strike", ...x });
+  return out;
+}
+function queueFx(before, d) {
+  if (!before) return;                                           // joining or reloading never replays the past
+  const had = before.day === d.day ? (before.myday || []).length : 0;
+  const mine = d.myday || [];
+  for (let i = had; i < mine.length; i++) fxQueue.push(...fxFor(mine[i]));
+  runFx();
+}
+function runFx() {
+  if (fxRunning || !fxQueue.length) return;
+  if (doorState.busy) { setTimeout(runFx, 300); return; }          // wait for the doors to open first
+  fxRunning = true;
+  playFx(fxQueue.shift()).then(() => { fxRunning = false; runFx(); });
+}
+function playFx(x) {
+  const icon = itemIcon(x.weapon || x.item, x.wk);
+  let cap, body, cls, ms, buzzPat, sound;
+  if (x.type === "take") {
+    cls = "take"; ms = 1900; buzzPat = [30]; sound = "tick";
+    cap = x.sneak ? ["You slip the ", h("b", {}, x.item), " into your pocket 🤫"] : ["You took the ", h("b", {}, x.item)];
+    body = [h("div", { class: "item" }, icon), h("div", { class: "hand" }, "🤚"), h("div", { class: "spark" })];
+  } else {
+    const kind = x.wk || "sharp";
+    cls = `strike ${kind}${x.survived ? " survived" : ""}`; ms = 2900; sound = x.role === "killer" ? "drum" : "scream"; buzzPat = x.role === "killer" ? [40, 60, 160] : [200, 80, 200];
+    const verb = kind === "sharp" ? "stabbed" : kind === "blunt" ? "struck down" : "strangled";
+    if (x.role === "killer") cap = x.survived ? [h("b", {}, x.victim), " survived! Someone was watching over them."] : ["You ", verb, " ", h("b", {}, x.victim)];
+    else if (x.role === "victim") cap = x.survived ? "Someone attacked you from behind… and you survived!" : [h("b", {}, x.by), " ", { sharp: "stabbed", blunt: "struck", cord: "strangled" }[kind], " you"];
+    else cap = x.survived ? ["You saw ", h("b", {}, x.killer), " attack ", h("b", {}, x.victim), ". They survived!"] : ["You saw ", h("b", {}, x.killer), " ", verb, " ", h("b", {}, x.victim)];
+    const target = x.role === "victim" ? { who: "you" } : { who: x.victim };
+    const mineP = S?.players?.find((q) => q.pid === S.me?.pid);
+    const victimFace = x.role === "victim" ? (mineP ? face(mineP, "big") : h("span", { class: "face big" }, "🙂")) : faceOf(target.who, "big");
+    body = [h("div", { class: "victim" }, victimFace, x.survived ? h("span", { class: "shield" }, "🛡️") : null),
+      kind === "cord" ? h("div", { class: "noose" }) : h("div", { class: "weapon" }, icon), kind === "sharp" ? h("div", { class: "slashline" }) : null,
+      h("div", { class: "burst" }), h("div", { class: "flash" })];
+    if (x.role === "witness") body.unshift(h("div", { class: "who" }, faceOf(x.killer, "sm")));
+  }
+  cap = [].concat(cap);
+  sfx(sound); try { if (navigator.vibrate && sound !== "tick") navigator.vibrate(buzzPat); } catch { /* not supported */ }
+  if (calm()) { toast([...cap].map((c) => (typeof c === "string" ? c : c.textContent)).join(""), 2200); return new Promise((r) => setTimeout(r, 900)); }
+  const el = h("div", { class: `fx ${cls}`, role: "img", "aria-label": [...cap].map((c) => (typeof c === "string" ? c : c.textContent)).join("") },
+    h("div", { class: "scrim" }), h("div", { class: "stage" }, ...body, h("p", { class: "cap" }, ...cap)));
+  document.body.append(el);
+  if (cls.startsWith("strike")) { setTimeout(() => document.body.classList.add("shake"), ms * 0.4); setTimeout(() => document.body.classList.remove("shake"), ms * 0.4 + 480); }
+  return new Promise((resolve) => setTimeout(() => { el.classList.add("out"); setTimeout(() => { el.remove(); resolve(); }, 350); }, ms));
 }
 
 function render() {

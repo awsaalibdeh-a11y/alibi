@@ -847,8 +847,9 @@ def my_day(g, p, d):
         noticed = [e for e in hr["events"][room] if e["pid"] == p["pid"] or (not dark and (not e.get("sneak") or looked))]
         ev = [f"{'You' if e['pid'] == p['pid'] else name_of(g, seen_as(e['pid']))} {e['text']}."
               + (" You caught it while looking around." if e.get("sneak") and e["pid"] != p["pid"] else "") for e in noticed]
-        items = [{"who": "You" if e["pid"] == p["pid"] else name_of(g, seen_as(e["pid"])), "item": e["item"], "kind": e["kind"], "sneak": bool(e.get("sneak"))}
+        items = [{"who": "You" if e["pid"] == p["pid"] else name_of(g, seen_as(e["pid"])), "item": e["item"], "kind": e["kind"], "sneak": bool(e.get("sneak")), "wk": KIND.get(e["item"])}
                  for e in noticed if e.get("item")]
+        strikes = []                                                     # for the animations: what happened to you, by your hand, or in front of you
         if a.get("missed"):
             ev.append(f"You looked for the {a['missed']}, but it was already gone.")
         if p["pid"] in hr["looks"]:
@@ -858,19 +859,25 @@ def my_day(g, p, d):
             if kk["killer"] == p["pid"] and kk.get("shape"):
                 ev.append(f"You were wearing {name_of(g, kk['shape'])}'s face.")
             if kk["killer"] == p["pid"]:
+                strikes.append({"role": "killer", "victim": name_of(g, kk["victim"]), "weapon": kk["weapon"], "wk": KIND.get(kk["weapon"]), "survived": False})
                 ev.append(f"You killed {name_of(g, kk['victim'])} here with the {kk['weapon']}" + (" — in front of " + ", ".join(name_of(g, q) for q in kk.get("witnesses", [])) if kk.get("witnesses") else "") + ".")
             if kk["victim"] == p["pid"]:
+                strikes.append({"role": "victim", "by": name_of(g, kk["killer"]), "weapon": kk["weapon"], "wk": KIND.get(kk["weapon"]), "survived": False})
                 ev.append(f"{name_of(g, kk['killer'])} killed you here with the {kk['weapon']}.")
             if p["pid"] in kk.get("witnesses", []):
+                strikes.append({"role": "witness", "killer": name_of(g, seen_as(kk["killer"])), "victim": name_of(g, kk["victim"]), "weapon": kk["weapon"], "wk": KIND.get(kk["weapon"]), "survived": False})
                 ev.append(f"You SAW {name_of(g, seen_as(kk['killer']))} kill {name_of(g, kk['victim'])} with the {kk['weapon']}, right in front of you!")
             if p["pid"] in kk.get("heard", []):
                 ev.append(f"A scream in the dark: {name_of(g, kk['victim'])} was killed right beside you, but you couldn't see by whom.")
         for x in [x for x in d.get("saves", []) if x["hour"] == i]:
             if x["killer"] == p["pid"]:
+                strikes.append({"role": "killer", "victim": name_of(g, x["victim"]), "weapon": x["weapon"], "wk": KIND.get(x["weapon"]), "survived": True})
                 ev.append(f"You struck at {name_of(g, x['victim'])} with the {x['weapon']}, but they survived: someone had been looking after them!")
             if x["victim"] == p["pid"]:                                 # from behind: you live, but you never saw who
+                strikes.append({"role": "victim", "by": None, "weapon": x["weapon"], "wk": KIND.get(x["weapon"]), "survived": True})
                 ev.append(f"Someone attacked you from behind with the {x['weapon']}! You survived: the Doctor had been watching over you.")
             if p["pid"] in x["witnesses"]:
+                strikes.append({"role": "witness", "killer": name_of(g, seen_as(x["killer"])), "victim": name_of(g, x["victim"]), "weapon": x["weapon"], "wk": KIND.get(x["weapon"]), "survived": True})
                 ev.append(f"You SAW {name_of(g, seen_as(x['killer']))} attack {name_of(g, x['victim'])} with the {x['weapon']}! They survived.")
             if d.get("guard", {}).get(p["pid"]) == x["victim"]:
                 ev.append(f"Your patient {name_of(g, x['victim'])} was attacked in the {ROOM[x['room']]['name']}, and lived, thanks to you.")
@@ -882,7 +889,7 @@ def my_day(g, p, d):
                 ev.append(f"{name_of(g, f['by'])} kept studying you all hour, far too closely. A detective, perhaps?")
         if d["found"] and d["found"]["hour"] == i and p["pid"] in d["found"]["by"] and not (k and p["pid"] in k.get("witnesses", []) + k.get("heard", [])):
             ev.append(f"You found {name_of(g, k['victim'])}'s body!")
-        out.append({"hour": HOURS[i], "i": i, "room": room, "act": a.get("act", ""), "saw": saw, "events": ev, "items": items, "dark": dark,
+        out.append({"hour": HOURS[i], "i": i, "room": room, "act": a.get("act", ""), "saw": saw, "events": ev, "items": items, "strikes": strikes, "dark": dark,
                     "idle": bool(a.get("idle")) or p["pid"] in hr.get("idle", [])})
     return out
 
@@ -1227,6 +1234,27 @@ def remember_meet(g, bot, who_, text):
     return plan
 
 
+def deaths_brief(g):
+    """Every death so far, as everybody knows it: who, where, when, how, and who the guests voted out. Nothing the bot couldn't know."""
+    lines = []
+    for dd in g["days"]:
+        kills = dd.get("kills") or ([dd["kill"]] if dd.get("kill") else [])
+        for kk in kills:
+            if dd.get("found") or kk.get("found"):
+                lines.append(f"Day {dd['n']}: {name_of(g, kk['victim'])} ({player(g, kk['victim'])['char']['title']}) was found dead in the {ROOM[kk['room']]['name']}, "
+                             f"killed around {HOURS[kk['hour']]}, {CAUSE[KIND[kk['weapon']]]}.")
+            else:
+                lines.append(f"Day {dd['n']}: {name_of(g, kk['victim'])} has not been seen since {HOURS[kk['hour']]}; nobody has found a body yet.")
+        if dd.get("ejected"):
+            q = player(g, dd["ejected"])
+            lines.append(f"Day {dd['n']}: the guests voted out {q['name']} ({q['char']['title']}), who turned out to be " + ("a killer." if q["role"] == "killer" else "innocent."))
+    alive = [q["name"] for q in g["players"] if q["alive"]]
+    killers = sum(q.get("role") == "killer" for q in g["players"])
+    caught = sum(q.get("role") == "killer" and not q["alive"] and bool(q.get("ejected")) for q in g["players"])
+    return ("Deaths so far (these are ALL of them; nobody else has died): " + (" ".join(lines) if lines else "none.") + f"\nStill alive: {', '.join(alive)}. "
+            f"There {'is' if killers == 1 else 'are'} {killers} killer{'' if killers == 1 else 's'} among the guests; {caught} caught so far.")
+
+
 def bot_brief(g, p):
     """Everything a bot knows, for its AI prompt."""
     d = today(g)
@@ -1248,7 +1276,7 @@ def bot_brief(g, p):
     gut = ", ".join(f"{name_of(g, q)} ({v:.0f})" for q, v in sorted(s.items(), key=lambda kv: -kv[1])[:3] if v >= 1)
     saw_kill = bool(d) and any(p["pid"] in x.get("witnesses", []) for x in d.get("kills") or [])
     return (f"You are {p['name']}, {p['char']['title']} ({p['char']['blurb']}). {role} {lie}\nThe other guests (the only people here; never invent others): {guests}\n"
-            f"Public facts: {public or 'none yet'}\nWhat you personally saw today: {seen or 'nothing yet'}\n"
+            f"Public facts: {public or 'none yet'}\n{deaths_brief(g)}\nWhat you personally saw today: {seen or 'nothing yet'}\n"
             + ("You SAW the murder happen: that is the most important thing you know. Say so plainly and name the killer.\n" if saw_kill and p["role"] != "killer" else "")
             + (f"Private messages you've had (only you and them know; use them, and bring up what's useful at the meeting):\n{whispers}\n" if whispers else "")
             + (f"What you heard said in rooms today:\n{heard[-600:]}\n" if heard else "")
@@ -1265,12 +1293,65 @@ def audience(g):
     return any(not q["bot"] and now() - q.get("seen", 0) < 40 for q in g["players"])
 
 
+SYSTEM = ("You play a guest in a murder-mystery party game with friends. Output only JSON. "
+          "Use ONLY the facts in your notes. Never invent people, rooms, objects, times, deaths or events that are not written there. "
+          "If you don't know something, say you don't know or ask a question. A death is real only if it is listed under 'Deaths so far'. "
+          "Never claim to have seen something that is not under 'What you personally saw'.")
+_COMMON = {"I", "Im", "Ill", "Ive", "Id", "God", "Oh", "Hmm", "Well", "Yes", "No", "Ok", "Okay", "Look", "Listen", "Honestly", "Seriously", "Maybe", "Right", "So", "And",
+           "But", "Wait", "Sorry", "Please", "Thanks", "Alibi", "Lord", "Lady", "Doctor", "Sir", "Madam", "Miss", "Mr", "Mrs", "Day", "Monday", "Tuesday", "Wednesday",
+           "Thursday", "Friday", "Saturday", "Sunday", "AM", "PM", "Hey", "Hi", "Hello", "Dear", "Darling", "Nobody", "Everyone", "Someone", "Anyone", "Also", "Still"}
+
+
+_NAMES = {n.lower() for n in "James John Robert Michael William David Richard Joseph Thomas Charles Christopher Daniel Matthew Anthony Donald Steven Paul Andrew Joshua Kenneth Kevin Brian George Edward Ronald Timothy Jason Jeffrey Ryan Jacob Gary Nicholas Eric Jonathan Stephen Larry Justin Scott Brandon Benjamin Samuel Gregory Raymond Alexander Patrick Jack Dennis Jerry Tyler Aaron Jose Adam Nathan Henry Douglas Zachary Peter Kyle Walter Ethan Jeremy Harold Keith Roger Noah Gerald Carl Terry Sean Austin Arthur Lawrence Jesse Dylan Bryan Joe Jordan Billy Bruce Albert Willie Gabriel Logan Alan Juan Wayne Roy Ralph Randy Eugene Vincent Russell Elijah Louis Bobby Philip Johnny Mary Patricia Jennifer Linda Elizabeth Barbara Susan Jessica Sarah Karen Lisa Nancy Betty Margaret Sandra Ashley Kimberly Emily Donna Michelle Carol Amanda Dorothy Melissa Deborah Stephanie Rebecca Sharon Laura Cynthia Kathleen Amy Angela Shirley Anna Brenda Pamela Emma Nicole Helen Samantha Katherine Christine Debra Rachel Carolyn Janet Catherine Maria Diane Ruth Julie Olivia Joyce Virginia Victoria Kelly Lauren Christina Joan Evelyn Judith Megan Andrea Cheryl Hannah Jacqueline Martha Gloria Teresa Sara Madison Frances Kathryn Janice Jean Abigail Alice Julia Judy Sophia Denise Doris Marilyn Danielle Beverly Isabella Theresa Diana Natalie Brittany Charlotte Marie Kayla Alexis Lori Victor Oliver Harry Edmund Percy Reginald Algernon Cecil Winston Marcus Julian Sebastian Rupert Eleanor Beatrice Florence Violet Lydia Agatha Cordelia Imogen Penelope Rosalind Vivian Constance Adelaide Hugh Leonard Stanley Clive Gerald Nigel Giles Roderick Montgomery Fitzgerald Lucy Daisy Poppy Molly Ellie Holly Bella Sophie Chloe Zoe Mia Ava Lily Ivy Nora Elsa Fiona Gemma Tessa Vera Edith Ada Mabel Hazel Maude".split()} | {n.lower() for n in BOT_NAMES}
+
+
+def _allowed_words(g):
+    words = set(_COMMON)
+    for q in g["players"]:
+        words.update(re.findall(r"[A-Za-z']+", q["name"]))
+        words.update(re.findall(r"[A-Za-z']+", (q.get("char") or {}).get("title", "")))
+    for r in ROOMS:
+        words.update(re.findall(r"[A-Za-z']+", r["name"]))
+        for it in r["items"]:
+            words.update(re.findall(r"[A-Za-z']+", it))
+    words.update(re.findall(r"[A-Za-z']+", " ".join(str(MAPS[CURRENT["id"]].get(k, "")) for k in ("title", "place", "prize", "gazette"))))
+    return {w.lower() for w in words}
+
+
+def grounded(g, text):
+    """Does a bot's line stick to what is true in this game? Rejects other maps' rooms and things, and names of people who aren't here."""
+    t = text or ""
+    here = {r["name"].lower() for r in ROOMS} | {i.lower() for r in ROOMS for i in r["items"]}
+    for mid, m in MAPS.items():
+        if mid == CURRENT["id"]:
+            continue
+        for r in m["rooms"]:
+            for w in [r["name"]] + list(r["items"]):
+                if w.lower() not in here and re.search(r"\b" + re.escape(w.lower()) + r"\b", t.lower()):
+                    return False                                           # a room or object from some other house
+    allowed = _allowed_words(g)
+    for m in re.finditer(r"(?<![.!?]\s)(?<!^)\b[A-Z][a-z]{2,}\b", t):         # a capitalised word that isn't the start of a sentence: a name?
+        if m.group(0).lower() not in allowed:
+            return False
+    for m in re.finditer(r"\b[A-Z][a-z]+\b", t):                              # a real first name, even at the start of a sentence, who isn't here
+        if m.group(0).lower() in _NAMES and m.group(0).lower() not in allowed:
+            return False
+    return True
+
+
 def _bot_reply(g, prompt, fallback):
     if not audience(g) or g.get("ai_calls", 0) >= GAME_LIMIT:         # nobody watching, or this game has had its share: plain lines are free
         return fallback
     g["ai_calls"] = g.get("ai_calls", 0) + 1
     try:
-        text = _s(_ask_json("You play a guest in a murder-mystery party game with friends. Output only JSON.", prompt, 160).get("say"), 200)
+        text = _s(_ask_json(SYSTEM, prompt, 160).get("say"), 200)
+        if text and not grounded(g, text):                                 # it made something up: one more go, told exactly what is true, then give up
+            log.debug("bot line rejected: %s", text)
+            g["ai_calls"] = g.get("ai_calls", 0) + 1
+            text = _s(_ask_json(SYSTEM, prompt + "\nYour last answer mentioned a person, place or object that is not in your notes. Answer again using only people, rooms and objects from your notes.", 160).get("say"), 200)
+            if text and not grounded(g, text):
+                log.debug("bot line rejected again: %s", text)
+                text = ""
     except Exception as exc:                                           # AI off or slow: a plain line keeps the bot in the game
         log.debug("bot fallback: %s", exc)
         text = ""
