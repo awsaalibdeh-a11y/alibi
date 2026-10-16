@@ -3,7 +3,7 @@
 (() => {
   "use strict";
   const KEY = "alibi.install";
-  const standalone = () => matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+  const standalone = () => matchMedia("(display-mode: standalone)").matches || navigator.standalone === true || /AwsaaApp/.test(navigator.userAgent);       // an installed app, or the Android app
   const ios = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
   const read = () => { try { return JSON.parse(localStorage.getItem(KEY) || "{}") || {}; } catch { return {}; } };
   const write = (o) => { try { localStorage.setItem(KEY, JSON.stringify({ ...read(), ...o })); } catch { /* private mode */ } };

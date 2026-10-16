@@ -1108,7 +1108,7 @@ function settings() {
   const r = loadRecord(), pct = r.games ? Math.round((r.wins / r.games) * 100) : 0;
   const stat = (n, label) => h("div", { class: "stat" }, h("b", {}, String(n)), h("small", { class: "muted" }, label));
   const apk = h("a", { class: "btn block", href: "/alibi.apk", download: "Alibi.apk", hidden: true }, "🤖 Get the Android app");
-  fetch("/alibi.apk", { method: "HEAD" }).then((x) => { if (x.ok) apk.hidden = false; }).catch(() => { /* not published yet */ });
+  if (!/AwsaaApp/.test(navigator.userAgent)) fetch("/alibi.apk", { method: "HEAD" }).then((x) => { if (x.ok) apk.hidden = false; }).catch(() => { /* not published yet */ });
   const sheet = h("div", { class: "sheet", role: "dialog", "aria-modal": "true", "aria-label": "Settings" },
     h("div", { class: "row" }, h("h2", { class: "h2" }, "Settings"), h("span", { class: "spacer" }), h("button", { class: "ibtn", type: "button", "aria-label": "Close", onClick: close }, "✕")),
     toggle("Sound", "Footsteps, drums and the rest.", sound.on, (on) => { sound.on = on; prefSet("alibi.sound", on ? "on" : "off"); render(); }),
