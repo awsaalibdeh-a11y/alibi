@@ -698,5 +698,132 @@ class Api(unittest.TestCase):
         self.assertNotIn("skip", [v for q, v in d["votes"].items() if game.player(g, q)["bot"]], "bots never skip")
 
 
+class Pace(unittest.TestCase):
+    """The host picks how long each step lasts: a quick game for a short break, a relaxed one for the whole family."""
+
+    def lobby(self, bots=5):
+        g = game.new_game()
+        host = game.add_player(g, "Ann")
+        g["host"] = host["pid"]
+        for _ in range(bots):
+            game.add_bot(g)
+        c = app.test_client()
+        post = lambda who=host, **body: c.post(f"/api/game/{g['code']}", json={"pid": who["pid"], "token": who["token"], **body})
+        return g, host, post
+
+    def test_the_default_is_normal_and_the_lobby_shows_it(self):
+        g, host, _ = self.lobby()
+        self.assertEqual(game.view(g, host)["pace"], "normal")
+        self.assertEqual((game.tm(g, "room"), game.tm(g, "talk")), (60, 150))
+
+    def test_the_host_sets_it_and_every_step_follows(self):
+        g, host, post = self.lobby()
+        self.assertEqual(post(type="pace", pace="quick").status_code, 200)
+        self.assertEqual(game.view(g, host)["pace"], "quick")
+        self.assertEqual((game.tm(g, "room"), game.tm(g, "talk"), game.tm(g, "vote")), (36, 90, 21))
+        post(type="pace", pace="relaxed")
+        self.assertEqual((game.tm(g, "room"), game.tm(g, "talk")), (102, 255))
+        game.start(g)
+        self.assertAlmostEqual(g["deadline"] - game.now(), game.tm(g, "roles"), delta=1.5)
+        self.assertGreater(game.tm(g, "roles"), game.T["roles"])
+
+    def test_nobody_else_can_and_nothing_else_is_accepted(self):
+        g, host, post = self.lobby(bots=0)
+        guest = game.add_player(g, "Ben")
+        post(guest, type="pace", pace="quick")
+        self.assertEqual(game.view(g, host)["pace"], "normal", "only the host chooses")
+        self.assertEqual(post(type="pace", pace="warp").status_code, 400)
+        self.assertEqual(post(type="pace").status_code, 400)
+        self.assertEqual(game.view(g, host)["pace"], "normal")
+
+    def test_it_cannot_change_once_the_game_has_started(self):
+        g, host, post = self.lobby()
+        game.start(g)
+        post(type="pace", pace="quick")
+        self.assertEqual(g.get("pace", "normal"), "normal")
+
+    def test_no_clock_is_ever_shorter_than_a_few_seconds_and_the_countdown_is_not_part_of_it(self):
+        g, _, _ = self.lobby()
+        g["pace"] = "quick"
+        self.assertTrue(all(game.tm(g, k) >= 5 for k in game.T))
+        self.assertEqual(game.T["countdown"], 4)
+
+    def test_a_quick_game_and_a_relaxed_one_both_play_to_the_end(self):
+        for pace in ("quick", "relaxed"):
+            for _ in range(4):
+                g = game.new_game()
+                g["pace"] = pace
+                for _ in range(6):
+                    game.add_bot(g)
+                game.start(g)
+                phases = run_out(g)
+                self.assertEqual(g["phase"], "over", (pace, phases[-8:]))
+
+    def test_bots_speak_inside_the_shorter_talk_window(self):
+        g = game.new_game()
+        g["pace"] = "quick"
+        for _ in range(6):
+            game.add_bot(g)
+        game.start(g)
+        game.new_day(g)                                         # the first morning (the days only begin once everyone has read their role)
+        game.begin_talk(g)
+        d = game.today(g)
+        self.assertEqual(g["phase"], "talk")
+        self.assertAlmostEqual(g["deadline"] - game.now(), game.tm(g, "talk"), delta=1.5)
+        plans = d["bot_plan"]
+        self.assertTrue(plans)
+        self.assertTrue(all(plan["at"] <= game.now() + game.tm(g, "talk") - 20 for plan in plans), "every bot line is planned before the talk ends")
+
+
+class AsAnApp(unittest.TestCase):
+    """Alibi opens like an app, and a family can start a game from the Homebase chat."""
+
+    def setUp(self):
+        self.c = app.test_client()
+
+    def test_the_page_carries_the_homebase_address_and_the_new_scripts(self):
+        r = self.c.get("/")
+        page = r.get_data(as_text=True)
+        self.assertIn('<meta name="homebase-origins" content="https://homebase-family.onrender.com">', page)
+        for script in ("install.js", "family.js", "app.js"):
+            self.assertIn(f"/static/{script}", page)
+            self.assertEqual(self.c.get(f"/static/{script}").status_code, 200)
+        csp = r.headers["Content-Security-Policy"]
+        connect = [d for d in csp.split(";") if d.strip().startswith("connect-src")][0]
+        self.assertIn("https://homebase-family.onrender.com", connect, "the game may answer Homebase")
+        self.assertNotIn("evil", connect)
+        self.assertIn("script-src 'self'", csp)
+        self.assertNotIn("'unsafe-inline'", [d for d in csp.split(";") if d.strip().startswith("script-src")][0], "still no inline scripts")
+
+    def test_the_manifest_is_installable(self):
+        m = self.c.get("/manifest.webmanifest").get_json()
+        self.assertEqual((m["id"], m["scope"], m["display"]), ("/", "/", "standalone"))
+        sizes = {i["sizes"] for i in m["icons"]}
+        self.assertTrue({"192x192", "512x512"} <= sizes)
+        for i in m["icons"]:
+            self.assertEqual(self.c.get(i["src"]).status_code, 200, i["src"])
+        sw = self.c.get("/sw.js")
+        self.assertEqual((sw.status_code, sw.headers["Service-Worker-Allowed"]), (200, "/"))
+
+    def test_the_android_app_is_served_once_published_and_not_before(self):
+        import tempfile
+        site = sys.modules["app"]
+        with tempfile.TemporaryDirectory() as tmp:                                  # never the real static folder: a test must not leave an APK behind
+            os.makedirs(os.path.join(tmp, "static"))
+            with mock.patch.object(site, "BASE", tmp):
+                self.assertEqual(self.c.get("/alibi.apk").status_code, 404)
+                with open(os.path.join(tmp, "static", "alibi.apk"), "wb") as f:
+                    f.write(b"PKtest")
+                r = self.c.get("/alibi.apk")
+                try:
+                    self.assertEqual((r.status_code, r.mimetype), (200, "application/vnd.android.package-archive"))
+                    self.assertIn("Alibi.apk", r.headers["Content-Disposition"])
+                finally:
+                    r.close()
+                h = self.c.head("/alibi.apk")
+                h.close()
+                self.assertEqual(h.status_code, 200, "the settings sheet checks with HEAD")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -110,7 +110,7 @@ class MapRoutes(unittest.TestCase):
     def test_the_list_of_maps(self):
         d = self.c.get("/api/maps").get_json()["maps"]
         self.assertEqual([m["id"] for m in d][:1], ["wrenmoor"])
-        self.assertTrue({"midnight", "frostline", "marlowe", "helios"} <= {m["id"] for m in d})
+        self.assertTrue({"midnight", "frostline", "marlowe", "helios", "dunes", "pearl"} <= {m["id"] for m in d})
         self.assertTrue(all(m["title"] and m["emoji"] and m["tagline"] for m in d))
 
     def test_you_pick_a_map_when_you_start_and_the_host_can_change_it(self):

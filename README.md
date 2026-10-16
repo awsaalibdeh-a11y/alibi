@@ -98,3 +98,18 @@ game.py           rooms, the day, kills, views per player, the clock, bots, the 
 static/app.js     the phone: home, lobby, role, the day, the body, chat, vote, the end
 static/style.css  a noir look
 ```
+
+## The October update
+
+- **🏠 Start a game from the Homebase family chat.** In Homebase, tap 🎮 in the family chat and choose Alibi. Homebase makes a one-time
+  link (it works once, for that family, for two hours) and opens Alibi as the host. When the game exists, its code goes back to the
+  chat with a Join button, which opens Alibi with the person's name filled in. Nothing to link or set up. The address the Join button
+  points to is built by Homebase, never taken from the game.
+- **⏱️ Pace.** The host picks Quick (about 40% shorter hours and meetings), Normal or Relaxed (about 70% longer) in the lobby.
+- **Two new places to be murdered:** 🏜️ The Dune Palace (a desert resort in a sandstorm) and 🛥️ The Gulf Pearl (a luxury yacht at sea).
+- **⚙️ Settings:** sound, vibration and calm mode on their own switches, **your record** (games, wins, win rate, best streak, wins as
+  killer; kept on the phone only), the tutorial, and Install Alibi.
+- **📲 An app.** An install bar on the home screen (and the Share, Add to Home Screen steps on iPhone), plus an Android app when
+  `static/alibi.apk` is published (the settings sheet shows the download only when it exists).
+
+Tests: `python -m unittest discover tests` (71).

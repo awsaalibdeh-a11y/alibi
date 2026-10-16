@@ -24,6 +24,8 @@
       S("⏱️", "Every hour", "Choose a room to move to, then talk to whoever is there, look around, take or put down an item. What you see is only what is in your room."),
       S("🗳️", "Find the body, then vote", "When a body is found everyone talks, then votes. The most votes is out. A tie means nobody. You can also chat privately with another player."),
       S("🎙️", "Voice and chat", "Talk to the people in your room. Ghosts can only talk to other ghosts. Use the ? button any time to see this again."),
+      S("🏠", "Play with your family from Homebase", "Open the family chat in Homebase and tap the game button. Alibi opens as the host, and everyone in the family chat gets the code and a Join button."),
+      S("⚙️", "Settings, pace and your record", "The gear has sound, vibration and calm mode, your win record, Install Alibi, and this tutorial. The host can pick a Quick, Normal or Relaxed pace in the lobby."),
     ] },
     scout: { steps: [
       S("📍", "Welcome to Scout", "Find what you need nearby, in your own words. Scout searches the places around you on the map."),

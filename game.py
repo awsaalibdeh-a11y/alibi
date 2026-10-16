@@ -81,6 +81,14 @@ BEATS = [
 ]
 MIN_PLAYERS, MAX_PLAYERS, QUEUE_SIZE = 4, 8, 6
 T = {"countdown": 4, "roles": 14, "move": 20, "room": 60, "body": 12, "quiet": 8, "talk": 150, "vote": 35, "result": 9, "queue": 30}
+PACE = {"quick": 0.6, "normal": 1.0, "relaxed": 1.7}                  # the host's pick in the lobby: how long each step lasts, against the table above
+
+
+def tm(g, key):
+    """How long a step lasts in this game (never shorter than a few seconds, whatever the pace)."""
+    return max(5, round(T[key] * PACE.get(g.get("pace"), 1.0)))
+
+
 ROOMS_FOR = {4: 3, 5: 4, 6: 4, 7: 5, 8: 6}                            # guests -> rooms: few enough that people keep meeting
 ROOM_ORDER = ["library", "kitchen", "garden", "study", "ballroom", "cellar"]
 
@@ -273,7 +281,7 @@ def start(g):
     for p in g["players"]:
         p["mission"] = pick_mission(g, p)
     g.update(day=0, days=[], winner=None, dms=[], signals={}, meets={}, searches=[], findings=[], ai_calls=0)
-    set_phase(g, "roles", T["roles"])
+    set_phase(g, "roles", tm(g, "roles"))
 
 
 # ---------- secret missions: a little something of your own to do, for bragging rights at the end ----------
@@ -364,7 +372,7 @@ def new_day(g, showdown=False):
     g["days"].append({"n": g["day"], "hours": [], "beats": beats, "moves": {}, "acts": {}, "cur": None, "kill": None, "found": None,
                       "chat": [], "roomchat": {}, "votes": {}, "ready": set(), "claims": {}, "ejected": None, "bot_plan": [], "missing": [],
                       "showdown": showdown, "kills": [], "gazette": gazette(g, prev) if prev else None})
-    set_phase(g, "move", T["move"])
+    set_phase(g, "move", tm(g, "move"))
 
 
 def beat(g, h=None):
@@ -513,7 +521,7 @@ def resolve_move(g):
             d["found"] = {"hour": g["hour"], "by": finders}
             record_hour(g, {q: {"act": "found the body"} for q in where}, {r["id"]: [] for r in ROOMS}, {})
             return body_found(g)
-    set_phase(g, "room", T["room"])
+    set_phase(g, "room", tm(g, "room"))
     live_rooms = sorted(set(where.values()))
     for p in g["players"]:                                             # the dead rattle the house now and then
         if p["bot"] and not p["alive"] and live_rooms and random.random() < 0.2:
@@ -646,16 +654,16 @@ def resolve_room(g):
         if h + 1 >= len(HOURS):
             return game_over(g, "guests")
         g["hour"] = h + 1
-        return set_phase(g, "move", T["move"])
+        return set_phase(g, "move", tm(g, "move"))
     record_hour(g, acts, events, looks)
     if h + 1 >= len(HOURS):
         if d["kill"]:
             d["found"] = {"hour": None, "by": []}
             return body_found(g)
         d["missing"] = missing(g)
-        return set_phase(g, "quiet", T["quiet"])
+        return set_phase(g, "quiet", tm(g, "quiet"))
     g["hour"] = h + 1
-    set_phase(g, "move", T["move"])
+    set_phase(g, "move", tm(g, "move"))
 
 
 def record_hour(g, acts, events, looks):
@@ -669,17 +677,17 @@ def missing(g):
 
 def body_found(g):
     today(g)["missing"] = missing(g)
-    set_phase(g, "body", T["body"])
+    set_phase(g, "body", tm(g, "body"))
 
 
 def begin_talk(g):
     if winner(g):
         return game_over(g)
     if showdown_due(g):
-        return set_phase(g, "showdown", T["result"])
+        return set_phase(g, "showdown", tm(g, "result"))
     d = today(g)
     d["ready"] = set()
-    set_phase(g, "talk", T["talk"])
+    set_phase(g, "talk", tm(g, "talk"))
     t0 = now()
     bots = [p for p in living(g) if p["bot"]]
     finders = [p for p in bots if d["found"] and p["pid"] in d["found"]["by"]]
@@ -691,9 +699,9 @@ def begin_talk(g):
         if p.get("job") == "medium" and any(not q["alive"] for q in g["players"]):
             d["bot_plan"].append({"at": t0 + random.uniform(10, 30), "pid": p["pid"], "kind": "seance"})
         for _ in range(random.choice([1, 2])):
-            d["bot_plan"].append({"at": t0 + random.uniform(8, T["talk"] - 30), "pid": p["pid"], "kind": "talk"})
+            d["bot_plan"].append({"at": t0 + random.uniform(8, tm(g, "talk") - 30), "pid": p["pid"], "kind": "talk"})
         if p["role"] == "killer" and d["kill"] and not p.get("noted") and random.random() < 0.3:
-            d["bot_plan"].append({"at": t0 + random.uniform(15, T["talk"] - 40), "pid": p["pid"], "kind": "note"})
+            d["bot_plan"].append({"at": t0 + random.uniform(15, tm(g, "talk") - 40), "pid": p["pid"], "kind": "note"})
 
 
 def winner(g):
@@ -735,7 +743,7 @@ def tally(g):
         p["alive"] = False
         p["ejected"] = True
         d["ejected"] = out
-    set_phase(g, "result", T["result"])
+    set_phase(g, "result", tm(g, "result"))
 
 
 def bot_votes(g):
@@ -917,7 +925,7 @@ def view(g, p):
             e["readyToVote"] = q["pid"] in d["ready"]
         pub.append(e)
     v = {"code": g["code"], "public": g["public"], "v": g["v"], "now": now(), "phase": g["phase"], "deadline": g["deadline"], "start_at": g["start_at"],
-         "day": g["day"], "hour": g["hour"], "roleInfo": {j: list(x) for j, x in JOBS.items()}, "rolesOn": list(g.get("roles", JOBS)),
+         "day": g["day"], "hour": g["hour"], "roleInfo": {j: list(x) for j, x in JOBS.items()}, "rolesOn": list(g.get("roles", JOBS)), "pace": g.get("pace", "normal"),
          "cast": {"killers": sum(q.get("role") == "killer" for q in g["players"]), "jobs": [j for j in JOBS if any(q.get("job") == j for q in g["players"])]}
          if g["phase"] != "lobby" else None, "hours": HOURS, "rooms": rooms_of(g), "showdown": bool(today(g) and today(g).get("showdown")), "players": pub, "winner": g["winner"], "prologue": PROLOGUE, "map": {k: MAPS[CURRENT["id"]].get(k) for k in MAP_KEYS},
          "me": {"pid": p["pid"], "name": p["name"], "role": p["role"], "alive": p["alive"], "host": p["pid"] == g["host"], "carrying": g["carry"].get(p["pid"]),
@@ -1135,7 +1143,7 @@ def tick(g):
                 plan["done"] = True                                    # cut short: every bot still gets its day on the record first
                 bot_speak(g, plan["pid"], "claim")
             d["vote_plan"] = [{"at": t + random.uniform(1, 8), "pid": p["pid"]} for p in living(g) if p["bot"]]
-            set_phase(g, "vote", T["vote"])
+            set_phase(g, "vote", tm(g, "vote"))
         return
     if g["phase"] == "vote":
         for plan in [x for x in d.get("vote_plan", []) if x["at"] <= t and not x.get("done")]:
@@ -1157,7 +1165,7 @@ def tick(g):
             if winner(g):
                 game_over(g)
             elif showdown_due(g):
-                set_phase(g, "showdown", T["result"])
+                set_phase(g, "showdown", tm(g, "result"))
             else:
                 new_day(g)
         elif g["phase"] == "showdown":
@@ -1771,6 +1779,11 @@ def act(code):
             g["map"] = pick_map(body.get("id"))
             use_map(g)
             bump(g)
+        elif kind == "pace" and g["phase"] == "lobby" and p["pid"] == g["host"]:
+            if body.get("pace") not in PACE:
+                return _err("Pick quick, normal or relaxed.")
+            g["pace"] = body["pace"]
+            bump(g)
         elif kind == "ready" and g["phase"] == "lobby":
             p["ready"] = bool(body.get("on"))
             bump(g)
@@ -1854,7 +1867,7 @@ def act(code):
                 body_found(g)
             else:
                 d["missing"] = missing(g)
-                set_phase(g, "quiet", T["quiet"])
+                set_phase(g, "quiet", tm(g, "quiet"))
         elif kind == "haunt" and g["phase"] == "room" and not p["alive"]:
             if d.get("haunts", {}).get(p["pid"]) == g["hour"]:
                 return _err("You've already rattled the house this hour.")

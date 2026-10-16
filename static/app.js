@@ -67,6 +67,7 @@ const face = (p, cls = "") => h("span", { class: `face ${cls}${p.alive === false
 
 /* ---------- sound: made on the spot, no files ---------- */
 const sound = { on: localStorage.getItem("alibi.sound") !== "off", ctx: null };
+const prefs = { buzz: localStorage.getItem("alibi.buzz") !== "off", calm: localStorage.getItem("alibi.calm") === "on" };
 function sfx(kind) {
   if (!sound.on) return;
   try {
@@ -180,6 +181,7 @@ function accept(d) {
     if (d.phase === "roles") ui.revealed = false;
     if (before && !['body', 'showdown'].includes(d.phase)) buzz(BUZZ[d.phase] || [20]);
     const won = d.winner && (d.winner === "killers") === (d.me.role === "killer");
+    if (before && d.phase === "over" && d.winner) recordGame(d);
     if (before && d.phase === "over" && won) confetti();
     if (before && ["body", "showdown"].includes(d.phase)) { try { navigator.vibrate?.([90, 60, 180]); } catch { /* ignore */ } }
     if (before && d.phase === "result") setTimeout(() => sfx(d.ejected?.role === "killer" ? "win" : d.ejected ? "lose" : "tick"), (0.5 + (d.ballots || []).length * 0.45) * 1000);
@@ -202,7 +204,7 @@ function accept(d) {
 let polling = null;
 /* the little extras that make it feel like an app: a buzz at the big moments, a "reconnecting" pill, and the screen staying awake */
 const BUZZ = { roles: [60], move: [40], room: [25], body: [220, 90, 220], showdown: [220, 90, 220], vote: [30, 40, 30], over: [140] };
-const buzz = (p) => { try { if (navigator.vibrate && sound.on) navigator.vibrate(p); } catch { /* not supported */ } };
+const buzz = (p) => { try { if (navigator.vibrate && prefs.buzz) navigator.vibrate(p); } catch { /* not supported */ } };
 let failures = 0, lock = null;
 function netPill(show) {
   let el = document.getElementById("net");
@@ -364,7 +366,7 @@ const ICON_BY_WORD = [[/knife|blade|axe|cleaver|shears|opener|punch|scalpel|scra
 const itemIcon = (name, wk) => WK_ICON[wk] || ICON_BY_WORD.find(([re]) => re.test(name || ""))?.[1] || "🔨";
 const fxQueue = [];
 let fxRunning = false;
-const calm = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+const calm = () => prefs.calm || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 const playerByName = (n) => S?.players?.find((q) => q.name === n) || null;
 const faceOf = (n, cls) => { const q = playerByName(n); return q ? face(q, cls) : h("span", { class: "face " + (cls || ""), style: { "--c": "#8d8d96" } }, "🙂"); };
 /** What to show for one hour's result: the hand taking something, and any strike you did, suffered or witnessed. */
@@ -447,6 +449,7 @@ const bar = (title, ...right) => h("div", { class: "bar" },
     unread() ? h("span", { class: "badge" }, String(unread())) : null) : null,
   S ? h("button", { class: "ibtn" + (voice.on ? " live" : ""), type: "button", "aria-pressed": String(voice.on), "aria-label": voice.on ? "Voice on: tap to leave" : "Join voice", title: voice.on ? "Voice on" : "Voice chat", onClick: toggleVoice },
     voice.on ? "🎙️" : "🔇", h("span", { class: "badge soft", "data-voice-count": "" }, "")) : null,
+  S && ["lobby", "over"].includes(S.phase) ? h("button", { class: "ibtn", type: "button", "aria-label": "Settings", title: "Settings", onClick: settings }, "⚙️") : null,
   h("button", { class: "ibtn", type: "button", "aria-label": sound.on ? "Sound on" : "Sound off", title: sound.on ? "Sound on" : "Sound off",
     onClick: () => { sound.on = !sound.on; try { localStorage.setItem("alibi.sound", sound.on ? "on" : "off"); } catch { /* ignore */ } render(); } }, sound.on ? "🔊" : "🔈"),
   S && !["lobby", "over"].includes(S.phase) ? h("button", { class: "ibtn", type: "button", "aria-label": "Leave the game", title: "Leave the game",
@@ -472,7 +475,7 @@ const voiceTip = () => (!voice.on && S.players.some((p) => p.voice && p.pid !== 
 /* ---------- home ---------- */
 function home() {
   const joinCode = (location.hash.match(/join\/(\w{4})/i) || [])[1]?.toUpperCase() || "";
-  const name = h("input", { class: "input", placeholder: "Your name", maxlength: "16", value: localStorage.getItem("alibi.name") || "", "aria-label": "Your name", autocomplete: "nickname", "data-keep": "name" });
+  const name = h("input", { class: "input", placeholder: "Your name", maxlength: "16", value: localStorage.getItem("alibi.name") || (window.AlibiFamily && window.AlibiFamily.pending() ? window.AlibiFamily.pending().n : "") || decodeURIComponent((location.hash.match(/join\/\w{4}\/([^/?#]+)/) || [])[1] || ""), "aria-label": "Your name", autocomplete: "nickname", "data-keep": "name" });
   const code = h("input", { class: "input code-in", placeholder: "CODE", maxlength: "4", "aria-label": "Game code", autocapitalize: "characters", autocomplete: "off", "data-keep": "code", value: joinCode });
   // a perk for anyone called Aws: pick your side before the game
   let want = (() => { try { return localStorage.getItem("alibi.want") || ""; } catch { return ""; } })();
@@ -493,6 +496,7 @@ function home() {
     try {
       const d = await post("/api/play", { name: n, mode, ...(mode === "create" || mode === "bots" ? { map: pickedMap } : {}), ...extra });
       me = { code: d.code, pid: d.pid, token: d.token };
+      if (mode === "create" && window.AlibiFamily && window.AlibiFamily.pending()) window.AlibiFamily.announce(d.code);   // Homebase: tell the family chat the code
       saveMe();
       history.replaceState(null, "", "/");
       S = null;
@@ -503,10 +507,12 @@ function home() {
   const join = () => { const c = code.value.trim().toUpperCase(); if (c.length !== 4) { toast("Game codes have 4 letters."); code.focus(); return; } go("join", { code: c }); };
   code.addEventListener("keydown", (e) => { if (e.key === "Enter") join(); });
   return h("section", { class: "home" },
+    h("button", { class: "ibtn gear", type: "button", "aria-label": "Settings", title: "Settings", onClick: settings }, "⚙️"),
     h("div", { class: "hero" }, h("div", { class: "logo" }, h("span", { html: LENS }), h("span", { class: "label" }, pickedMap === "random" ? "A surprise location" : curMap().title)),
       h("h1", { class: "display" }, "Alibi"),
       h("p", { class: "tagline" }, pickedMap === "random" ? "Somewhere new every time. A secret to keep. And one of you has decided not to wait." : curMap().tagline)),
     mapPicker(),
+    window.AlibiFamily && window.AlibiFamily.pending() ? h("div", { class: "card invite" }, h("b", {}, `🏠 A game for ${window.AlibiFamily.pending().f || "your family"}`), h("p", { class: "muted small" }, "Check your name, then start. Your family is told the code in the Homebase chat, with a Join button."), h("button", { class: "btn primary block", type: "button", onClick: () => go("create") }, "Start the family game")) : null,
     joinCode ? h("div", { class: "card invite" }, h("b", {}, `You're invited to game ${joinCode}.`), h("p", { class: "muted small" }, "Type your name and tap Join.")) : null,
     h("label", { class: "field" }, h("span", {}, "Your name"), name), perk,
     h("div", { class: "stack" },
@@ -556,6 +562,10 @@ function lobby() {
         h("button", { class: "btn primary", type: "button", onClick: share }, "📤 Send the link")),
     h("div", { class: "card" }, h("span", { class: "label" }, "Map"), h("div", { class: "row" }, h("b", {}, `${curMap().emoji} ${curMap().title}`)),
       !S.public && S.me.host ? mapDots() : h("p", { class: "muted small" }, curMap().tagline)),
+    !S.public ? h("div", { class: "card" }, h("span", { class: "label" }, "Pace" + (S.me.host ? " · tap to change" : "")),
+      h("div", { class: "opts3" }, [["quick", "⚡ Quick"], ["normal", "⏱️ Normal"], ["relaxed", "🛋️ Relaxed"]].map(([k, l]) =>
+        h("button", { class: "optbtn" + ((S.pace || "normal") === k ? " on" : ""), type: "button", disabled: !S.me.host, "aria-pressed": String((S.pace || "normal") === k), onClick: () => act("pace", { pace: k }) }, l))),
+      h("p", { class: "muted small" }, PACE_TEXT[S.pace || "normal"])) : null,
     h("div", { class: "card" }, h("span", { class: "label" }, `Guests · ${S.players.length} of 8`),
       h("div", { class: "plist" }, S.players.map((p) => h("div", { class: "prow" }, face(p), h("b", {}, p.name, p.pid === S.me.pid ? " (you)" : ""),
         p.bot ? h("span", { class: "tag" }, "🤖 bot") : p.host ? h("span", { class: "tag" }, "host") : null, p.voice ? h("span", { class: "tag" }, "🎙️") : null, h("span", { class: "spacer" }),
@@ -1037,7 +1047,7 @@ function over() {
       h("div", { class: "row center" }, killers.map((p) => face(p, "big"))),
       h("h1", { class: "display" }, killers.map((p) => p.name).join(" & ")),
       h("p", { class: "muted" }, killers.map((p) => p.char?.title).join(" & ")),
-      h("p", { class: "lead" }, iWon ? "You won! 🎉" : "You lost this one.")),
+      h("p", { class: "lead" }, iWon ? "You won! 🎉" : "You lost this one."), recordLine() ? h("p", { class: "muted small" }, recordLine()) : null),
     S.awards?.length ? h("div", { class: "card stack" }, h("span", { class: "label" }, "The weekend's awards"),
       h("div", { class: "awards" }, S.awards.map((a) => h("div", { class: "award" }, h("span", { class: "award-emoji" }, a.emoji),
         h("span", {}, h("b", {}, a.title), h("br"), h("span", {}, a.name), h("small", { class: "muted" }, ` · ${a.detail}`)))))) : null,
@@ -1062,5 +1072,59 @@ function over() {
 if (me) startPolling();
 render();
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && me) poll(); });
+
+
+/* ---------- settings, your record, and the pace of a game ---------- */
+const prefSet = (key, value) => { try { localStorage.setItem(key, value); } catch { /* private mode */ } };
+const REC = "alibi.record";
+const emptyRecord = () => ({ games: 0, wins: 0, asKiller: 0, killerWins: 0, streak: 0, best: 0, jobs: {} });
+function loadRecord() { try { return { ...emptyRecord(), ...JSON.parse(localStorage.getItem(REC) || "{}") }; } catch { return emptyRecord(); } }
+/** Kept on this phone only: each finished game adds to it once. */
+function recordGame(d) {
+  const r = loadRecord(), killer = d.me.role === "killer", won = (d.winner === "killers") === killer;
+  r.games++;
+  if (won) { r.wins++; r.streak++; r.best = Math.max(r.best, r.streak); } else r.streak = 0;
+  if (killer) { r.asKiller++; if (won) r.killerWins++; }
+  if (d.me.job) r.jobs[d.me.job] = (r.jobs[d.me.job] || 0) + 1;
+  prefSet(REC, JSON.stringify(r));
+  return r;
+}
+function recordLine() {
+  const r = loadRecord();
+  return r.games ? `Your record: ${r.wins} won of ${r.games}${r.streak > 1 ? ` · ${r.streak} wins in a row` : ""}` : "";
+}
+const PACE_TEXT = { quick: "Hours and meetings are about 40% shorter. Good for a short break.", normal: "The standard pace.", relaxed: "Hours and meetings are about 70% longer: more time to talk it through." };
+
+function settings() {
+  if (document.querySelector(".sheet-back")) return;
+  const close = () => { back.remove(); document.removeEventListener("keydown", onKey); };
+  const onKey = (e) => { if (e.key === "Escape") close(); };
+  const back = h("div", { class: "sheet-back", onClick: (e) => { if (e.target === back) close(); } });
+  const toggle = (label, sub, on, set) => {
+    const b = h("button", { class: "swt" + (on ? " on" : ""), type: "button", role: "switch", "aria-checked": String(on), "aria-label": label });
+    b.addEventListener("click", () => { on = !on; set(on); b.classList.toggle("on", on); b.setAttribute("aria-checked", String(on)); });
+    return h("div", { class: "setrow" }, h("span", {}, h("b", {}, label), h("br"), h("small", { class: "muted" }, sub)), b);
+  };
+  const r = loadRecord(), pct = r.games ? Math.round((r.wins / r.games) * 100) : 0;
+  const stat = (n, label) => h("div", { class: "stat" }, h("b", {}, String(n)), h("small", { class: "muted" }, label));
+  const apk = h("a", { class: "btn block", href: "/alibi.apk", download: "Alibi.apk", hidden: true }, "🤖 Get the Android app");
+  fetch("/alibi.apk", { method: "HEAD" }).then((x) => { if (x.ok) apk.hidden = false; }).catch(() => { /* not published yet */ });
+  const sheet = h("div", { class: "sheet", role: "dialog", "aria-modal": "true", "aria-label": "Settings" },
+    h("div", { class: "row" }, h("h2", { class: "h2" }, "Settings"), h("span", { class: "spacer" }), h("button", { class: "ibtn", type: "button", "aria-label": "Close", onClick: close }, "✕")),
+    toggle("Sound", "Footsteps, drums and the rest.", sound.on, (on) => { sound.on = on; prefSet("alibi.sound", on ? "on" : "off"); render(); }),
+    toggle("Vibration", "A buzz at the big moments, on phones that can.", prefs.buzz, (on) => { prefs.buzz = on; prefSet("alibi.buzz", on ? "on" : "off"); if (on) buzz([30]); }),
+    toggle("Calm mode", "Fewer animations and no screen shake.", prefs.calm, (on) => { prefs.calm = on; prefSet("alibi.calm", on ? "on" : "off"); }),
+    h("div", { class: "card stack" }, h("span", { class: "label" }, "Your record · on this phone"),
+      r.games ? h("div", { class: "stats" }, stat(r.games, "games"), stat(r.wins, "won"), stat(`${pct}%`, "win rate"), stat(r.best, "best streak"), stat(`${r.killerWins}/${r.asKiller}`, "as killer"))
+        : h("p", { class: "muted small" }, "Finish a game and your record starts here."),
+      r.games ? h("button", { class: "btn ghost sm", type: "button", onClick: () => { if (confirm("Reset your record?")) { prefSet(REC, "{}"); close(); settings(); } } }, "Reset record") : null),
+    h("button", { class: "btn block", type: "button", onClick: () => { close(); if (window.Tour) window.Tour.open(); else toast("The tutorial did not load. Reload the page."); } }, "▶ Show the tutorial"),
+    window.AlibiInstall && window.AlibiInstall.installed() ? null : h("button", { class: "btn block", type: "button", onClick: () => { close(); if (window.AlibiInstall) window.AlibiInstall.install(); } }, "📲 Install Alibi"),
+    apk);
+  back.append(sheet);
+  document.body.append(back);
+  document.addEventListener("keydown", onKey);
+  sheet.querySelector(".ibtn").focus();
+}
 
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => { /* optional */ });

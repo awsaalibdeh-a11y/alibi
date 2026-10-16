@@ -1,5 +1,5 @@
 /* Alibi: lets the game install and open quickly. The game itself always talks to the server. */
-const CACHE = "alibi-v1";
+const CACHE = "alibi-v2";
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (e) => { e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim())); });
 self.addEventListener("fetch", (e) => {

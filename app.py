@@ -8,7 +8,7 @@ import os
 import secrets
 
 from dotenv import load_dotenv
-from flask import Flask, render_template, request
+from flask import Flask, render_template, request, send_file
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
@@ -43,16 +43,19 @@ def headers(resp):
     return resp
 
 
+# The Homebase addresses this page may answer when a family starts a game from its chat (see static/family.js).
+HOMEBASE_ORIGINS = os.environ.get("HOMEBASE_ORIGINS", "https://homebase-family.onrender.com").split()
+
 CSP = "; ".join([
     "default-src 'self'", "script-src 'self'", "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-    "font-src https://fonts.gstatic.com", "img-src 'self' data:", "connect-src 'self' https://cramly-twz5.onrender.com", "object-src 'none'",
+    "font-src https://fonts.gstatic.com", "img-src 'self' data:", "connect-src 'self' https://cramly-twz5.onrender.com " + " ".join(HOMEBASE_ORIGINS), "object-src 'none'",
     "base-uri 'none'", "form-action 'self'", "frame-ancestors 'none'", "manifest-src 'self'",
 ])
 
 
 @app.route("/")
 def index():
-    resp = app.make_response(render_template("index.html", v=_version()))
+    resp = app.make_response(render_template("index.html", v=_version(), hb=" ".join(HOMEBASE_ORIGINS)))
     resp.headers["Content-Security-Policy"] = CSP
     resp.headers["Cache-Control"] = "no-cache"
     return resp
@@ -61,7 +64,7 @@ def index():
 @app.route("/manifest.webmanifest")
 def manifest():
     body = {"name": "Alibi", "short_name": "Alibi", "description": "A murder party game: one of you is the killer.",
-            "start_url": "/", "display": "standalone", "background_color": "#0a0a0b", "theme_color": "#0a0a0b",
+            "id": "/", "scope": "/", "categories": ["games", "entertainment"], "start_url": "/", "display": "standalone", "background_color": "#0a0a0b", "theme_color": "#0a0a0b",
             "icons": [{"src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
                       {"src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"},
                       {"src": "/static/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any"}]}
@@ -74,6 +77,15 @@ def service_worker():
     resp.headers["Service-Worker-Allowed"] = "/"
     resp.headers["Cache-Control"] = "no-cache"
     return resp
+
+
+@app.route("/alibi.apk")
+def android_app():
+    """The Android app (a wrapper around this site). 404 until it has been published."""
+    path = os.path.join(BASE, "static", "alibi.apk")
+    if not os.path.exists(path):
+        return ("", 404)
+    return send_file(path, mimetype="application/vnd.android.package-archive", as_attachment=True, download_name="Alibi.apk", max_age=0)
 
 
 @app.route("/healthz")
