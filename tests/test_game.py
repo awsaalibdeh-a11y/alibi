@@ -441,7 +441,7 @@ class Api(unittest.TestCase):
         d["moves"] = {k["pid"]: "kitchen", a["pid"]: "library", b["pid"]: "library"}
         game.resolve_move(g)
         v = game.view(g, c)
-        self.assertEqual({x["room"]: x["people"] for x in v["house"]}["library"], ["Ann", "Ben"], "the dead see the whole house")
+        self.assertEqual([q["name"] for q in {x["room"]: x["people"] for x in v["house"]}["library"]], ["Ann", "Ben"], "the dead see the whole house")
         self.assertEqual(post(c, type="haunt", room="library", emoji="💩").status_code, 400)
         post(c, type="haunt", room="library", emoji="🔪")
         self.assertEqual(post(c, type="haunt", room="kitchen", emoji="👻").status_code, 400, "once an hour")
@@ -531,7 +531,7 @@ class Api(unittest.TestCase):
         self.assertTrue(k["noted"])
 
     def test_the_detective_and_the_doctor(self):
-        for n, jobs, shifters in ((4, 1, 0), (5, 2, 1), (6, 3, 1), (8, 3, 1)):
+        for n, jobs, shifters in ((4, 1, 0), (5, 3, 1), (6, 4, 1), (7, 4, 1), (8, 5, 1)):   # the Detective and the Doctor, plus extras drawn by size
             g = game.new_game()
             for _ in range(n):
                 game.add_bot(g)
@@ -604,8 +604,8 @@ class Api(unittest.TestCase):
         for _ in range(5):
             game.add_bot(g)
         post = lambda **body: self.c.post(f"/api/game/{g['code']}", json={"pid": host["pid"], "token": host["token"], **body})
-        post(type="roles", role="shapeshifter", on=False)
-        post(type="roles", role="doctor", on=False)
+        for role in ("shapeshifter", "doctor", "jester", "tracker", "bodyguard"):
+            post(type="roles", role=role, on=False)
         self.assertEqual(game.view(g, host)["rolesOn"], ["detective", "medium"])
         game.start(g)
         self.assertEqual(sorted(p["job"] for p in g["players"] if p.get("job")), ["detective", "medium"])

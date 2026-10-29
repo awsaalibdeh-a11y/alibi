@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Alibi · A murder party game</title>
   <meta name="description" content="A murder party game for 4 to 8 players on their own phones. One of you is the killer: spend a day at the manor, find the body, work out who.">
-  <meta name="theme-color" content="#0a0a0b">
+  <meta name="theme-color" content="#09090b">
   <meta name="homebase-origins" content="{{ hb }}">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -21,6 +21,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v={{ v }}">
+  <script defer src="{{ url_for('static', filename='profile.js') }}?v={{ v }}"></script>
   <script defer src="{{ url_for('static', filename='app.js') }}?v={{ v }}"></script>
   <script defer src="{{ url_for('static', filename='install.js') }}?v={{ v }}"></script>
   <script defer src="{{ url_for('static', filename='family.js') }}?v={{ v }}"></script>
@@ -28,7 +29,7 @@
 <body>
   <main id="app" aria-live="polite"></main>
   <div id="toast" class="toast" role="status" hidden></div>
-  <noscript><p style="padding:2rem;color:#eee">Alibi needs JavaScript.</p></noscript>
+  <noscript><p style="padding:2rem;color:#ededf2">Alibi needs JavaScript.</p></noscript>
 <script src="/static/tour.js" data-app="alibi" defer></script>
 <script src="/static/hub.js" data-app="alibi" defer></script>
 </body>

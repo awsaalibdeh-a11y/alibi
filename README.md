@@ -54,8 +54,10 @@ the empty chairs.
 
 ## Maps
 
-Five places to commit a murder: **The Wrenmoor Weekend** (country-house manor), **The Midnight Express** (luxury night train),
-**Frostline Lodge** (snowed-in ski lodge), **The Grand Marlowe** (1920s seaside hotel) and **Station Helios** (space station).
+Nine places to commit a murder: **The Wrenmoor Weekend** (country-house manor), **The Midnight Express** (luxury night train),
+**Frostline Lodge** (snowed-in ski lodge), **The Grand Marlowe** (1920s seaside hotel), **Station Helios** (space station),
+**The Dune Palace** (desert resort), **The Gulf Pearl** (yacht), **The Night Museum** (a museum after dark) and **The Velvet Circus**
+(a travelling circus).
 Pick one on the home screen (or 🎲 for a surprise); the host can change it in the lobby. A map is only data (`maps.py`:
 six rooms, twelve things to pick up, twelve characters, ten story beats and its own headlines and colours), so the rules
 never change. Room ids stay the same six slots (the `garden` slot is the exposed one the weather locks), and
@@ -95,8 +97,9 @@ python -m unittest discover tests     # rules (kills, discovery, votes), whole b
 ```
 app.py            Flask: the page, security headers
 game.py           rooms, the day, kills, views per player, the clock, bots, the API
-static/app.js     the phone: home, lobby, role, the day, the body, chat, vote, the end
-static/style.css  a noir look
+static/app.js     the phone: home, lobby, role, the day, the body, the meeting and its evidence board, vote, the end
+static/profile.js your profile on this phone: XP, levels, achievements, badges, the daily challenge
+static/style.css  matte black, one accent colour per map, every animation scoped to a screen's first draw
 ```
 
 ## The October update
@@ -112,4 +115,30 @@ static/style.css  a noir look
 - **📲 An app.** An install bar on the home screen (and the Share, Add to Home Screen steps on iPhone), plus an Android app when
   `static/alibi.apk` is published (the settings sheet shows the download only when it exists).
 
-Tests: `python -m unittest discover tests` (71).
+Tests: `python -m unittest discover tests` (71 then).
+
+## The October 29 update
+
+- **Three new roles**, each switchable by the host: **🃏 the Jester** (on nobody's side: wins by getting voted out; the game goes on),
+  **🧭 the Tracker** (once a day follows someone's footprints for an hour: where they really went, with whom, what they took, even
+  under a Shapeshifter's borrowed face) and **🛡️ the Bodyguard** (once a day shadows someone for an hour, going wherever they go; if
+  the killer strikes them, the Bodyguard fights them off and both see who it was). The Detective and the Doctor come first; the other
+  roles are drawn at random by game size, always leaving at least one plain guest.
+- **🔎 The evidence board** in the meeting: everyone's claimed day side by side, the murder hour marked, and every claim that clashes
+  with what *you* saw (or with your Tracker footprints) in red. On a wide screen the meeting is two columns: chat, and the board.
+- **Emotes**: tap 😱 😂 🤔 😡 👀 🔪… and it floats up the screen for everyone in the same room, the meeting, the ghosts or the lobby.
+  Bots react to verdicts, accusations and bodies. **Quick lines** for one-tap chat.
+- **Ghosts see everything**: every room, who's in it (or heading there), who carries what, the killer marked, and what's being said.
+- **The end**: the weekend's big moments (first blood, caught in the act, saves, the big lie, the verdicts), plus your XP.
+- **Your profile** (on this phone): XP and levels with titles, 27 achievements, badges you can wear next to your name (other players see
+  them in the lobby), a daily challenge with a streak, your record by role and map, recent games.
+- **Open games**: a host can list a family game; the home screen shows open games anyone can join. **Lobby chat.**
+- **🎓 Practice**: a gentle game with four bots, a relaxed clock and a coach explaining each step; you're never the killer.
+- **Two new maps**: 🏛️ The Night Museum and 🎪 The Velvet Circus.
+- **Bots remember**: a witness from an earlier day still names the killer; trackers and bodyguards play their parts.
+- **A new look**: every screen redone, phones first; a ring clock that beats in the last ten seconds; title cards for each new day,
+  the meeting and the vote; a role card that flips; doors that show the next hour and its story; room tiles, vote tiles, ballots and a
+  falling verdict; confetti, sparks, level-ups. Ticking and a heartbeat in the last seconds, optional ambience per map.
+- **Settings**: calm mode, larger text, high contrast, tips, ambience, sound and vibration.
+
+Tests: `python -m unittest discover tests` (92).
