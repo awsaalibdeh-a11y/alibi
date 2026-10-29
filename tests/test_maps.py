@@ -26,12 +26,12 @@ class Maps(unittest.TestCase):
     def test_every_map_fits_the_rules(self):
         for mid, m in game.MAPS.items():
             with self.subTest(map=mid):
-                self.assertEqual(sorted(r["id"] for r in m["rooms"]), sorted(game.ROOM_ORDER))            # the six slots
+                self.assertEqual(sorted(r["id"] for r in m["rooms"]), sorted(game.ROOM_ORDER))            # the ten slots of the floor plan
                 names = [r["name"] for r in m["rooms"]]
-                self.assertEqual(len(set(names)), 6)
+                self.assertEqual(len(set(names)), 10)
                 items = [i for r in m["rooms"] for i in r["items"]]
-                self.assertEqual(len(items), 12)
-                self.assertEqual(len(set(items)), 12)
+                self.assertEqual(len(items), 20)
+                self.assertEqual(len(set(items)), 20)
                 self.assertEqual(set(items), set(m["kinds"]))                                         # every thing has a kind
                 for kind in ("blunt", "sharp", "cord"):
                     self.assertGreaterEqual(sum(v == kind for v in m["kinds"].values()), 3, kind)    # a killer can always find each kind
@@ -47,13 +47,21 @@ class Maps(unittest.TestCase):
                 for key in ("title", "tagline", "prologue", "gazette", "ejected", "quiet_head", "quiet_line", "new_day", "door_label", "place", "prize"):
                     self.assertTrue(m.get(key), key)
 
-    def test_a_small_game_still_has_enough_story_beats(self):
-        """Four guests open only three rooms, so beats that name a closed room are skipped; five must remain."""
-        for mid, m in game.MAPS.items():
-            open_names = {r["name"] for r in m["rooms"][:3]}
-            all_names = {r["name"] for r in m["rooms"]}
-            fits = [b for b in m["beats"] if not any(n in b["text"] and n not in open_names for n in all_names)]
-            self.assertGreaterEqual(len(fits), 6, mid)
+    def test_the_floor_plan_joins_every_room(self):
+        """One plan for every map: each room has a place, and you can walk from the hall to every room through doors,
+        even with the garden locked by the weather."""
+        self.assertEqual(set(game.PLAN), set(game.ROOM_ORDER))
+        for locked in (None, "garden"):
+            seen, todo = {game.START_ROOM}, [game.START_ROOM]
+            while todo:
+                for n in game.neighbours(todo.pop()):
+                    if n not in seen and n != locked:
+                        seen.add(n)
+                        todo.append(n)
+            self.assertEqual(seen | ({locked} if locked else set()), set(game.ROOM_ORDER), locked)
+        self.assertGreaterEqual(len(game.neighbours("garden")), 2, "two ways out of the garden")
+        cells = {(c, r + k) for c, r, span in game.PLAN.values() for k in range(span)}
+        self.assertEqual(len(cells), sum(span for _, _, span in game.PLAN.values()), "no two rooms in the same place")
 
     def test_a_bots_game_plays_to_the_end_on_every_map(self):
         for mid in game.MAPS:

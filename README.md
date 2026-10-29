@@ -6,7 +6,7 @@ the empty chairs.
 - **A story.** Lord Ashcombe's will is read at dusk. Every guest gets a character (the Heir, the Doctor, the Actress…),
   and every hour has a story beat: some just colour the day, some change it (a power cut leaves a room pitch dark and
   hides who's in it; rain locks the garden).
-- **Every hour, two steps.** Move: pick a room. Then the room (up to a minute, or until everyone leaves): see who came,
+- **Every hour, two steps.** Move: stay, or walk to a room next door on the floor plan. Then the room (up to a minute, or until everyone leaves): see who came,
   talk to them (typing or voice), and choose what to do: an activity, look around (who was here the hour before), take
   or put back an object. Take it openly, or sneak it: then only someone looking around notices.
 - **The house grows with the party:** three rooms for four guests, up to all six for eight, so people keep meeting.
@@ -141,4 +141,25 @@ Tests: `python -m unittest discover tests` (71 then).
   falling verdict; confetti, sparks, level-ups. Ticking and a heartbeat in the last seconds, optional ambience per map.
 - **Settings**: calm mode, larger text, high contrast, tips, ambience, sound and vibration.
 
-Tests: `python -m unittest discover tests` (92).
+Tests: `python -m unittest discover tests` (92 then).
+
+## The house map and hide and seek (October 29, later)
+
+- **Ten rooms in every house.** Each map gained four rooms (a hall in the middle, a dining room, a bedroom and an attic, each in the
+  map's own style: the Midnight Express has a Train Corridor, an Observation Car, a Sleeper Cabin and a Roof Hatch), and every game
+  now uses the whole house.
+- **The old free-roaming game is gone.** Every game is played on a **floor plan**: the day starts in the hall, and each hour you stay
+  or walk through one door (stairs count). You see who you pass in a doorway, and you hear voices next door. The killer knows three
+  **secret passages** (shown dashed on their plan); a story that skips across the house is flagged on the evidence board, because
+  only a secret passage explains it. Careful killer bots tell walkable lies; bots walk to the meetings they promise.
+- **🙈 Hide and seek**, the second way to play (pick it on the home screen, or the host switches it in the lobby). One night,
+  10 PM to 5 AM. One seeker (two in a game of 7 or 8) counts in the hall for the first hour (catching nobody), then hunts: a seeker
+  runs up to two rooms an hour, knows the secret passages and hears anyone moving that far away. Hiders walk one room an hour and pick
+  a hiding place: behind the door, under the furniture or in the shadows. A seeker finds everyone in the open in their room, plus
+  whoever is in the two places they search. Keep still in the same spot and nobody walking in even sees you (they only hear
+  breathing), but after two hours your legs cramp and the seekers can hear you. Hiders hear the seekers' footsteps next door.
+  Talking or reacting gives you away. Whoever is found joins the hunt; the hiders win if anyone is still hidden at 5 AM. Balanced on
+  simulated bot nights: the hiders win about half to two thirds of them, and most hiders are found.
+- **The Bodyguard** now shadows someone in the same room and follows them through the same door.
+
+Tests: `python -m unittest discover tests` (104).

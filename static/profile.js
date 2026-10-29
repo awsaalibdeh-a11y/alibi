@@ -50,6 +50,9 @@ const AlibiProfile = (() => {
     ["lv10", "💎", "Inspector", "Reach level 10", (r) => level(r.xp).level >= 10, "💎"],
     ["lv20", "👑", "Mastermind", "Reach level 20", (r) => level(r.xp).level >= 20, "👑"],
     ["owl", "🌙", "Night owl", "Finish 5 daily challenges", (r) => r.dailies >= 5, "🌙"],
+    ["dawn", "🌅", "Never found", "Make it to dawn in hide and seek", (r) => (r.jobWins.hider || 0) >= 1, "🙈"],
+    ["seeker", "🔦", "Seeker supreme", "Find 3 hiders in one night of hide and seek", (r, s) => s && s.catches >= 3, "🔦"],
+    ["walker", "👣", "House walker", "Play 10 games on the house map", (r) => r.games >= 10],
   ].map(([id, emoji, title, desc, test, badge]) => ({ id, emoji, title, desc, test, badge }));
   const mapsAll = () => ((typeof MAPLIST !== "undefined" && MAPLIST.length > 1 ? MAPLIST : [{ id: "wrenmoor" }]).map((m) => m.id));
 
@@ -68,6 +71,8 @@ const AlibiProfile = (() => {
       ["Still be alive when the game ends", (s) => s.survived],
       ["Win one of the end-of-game awards", (s) => s.awards.length > 0],
       ["Play a game with 6 or more guests", (s) => s.players >= 6],
+      ["Play a night of hide and seek", (s) => s.mode === "hide", "🙈"],
+      ["Find someone in hide and seek", (s) => s.catches >= 1, "🔦"],
       ...(m ? [[`Play a game on ${m.title}`, (s) => s.map === m.id, m.emoji]] : []),
     ];
     const [text, test, emoji] = all[Math.floor(n / 7) % all.length];
@@ -91,12 +96,22 @@ const AlibiProfile = (() => {
     if (s.map) r.maps[s.map] = (r.maps[s.map] || 0) + 1;
     r.kills += s.kills; r.caught += s.caught ? 1 : 0; r.rightVotes += s.rightVotes; r.survived += s.survived ? 1 : 0;
     r.missions += s.mission ? 1 : 0; r.awards += s.awards.length; r.jester += s.jester ? 1 : 0; r.saves += s.saves; r.found += s.found; r.haunts += s.haunts;
-    const gained = [["Played a game", 40]];
-    if (s.won) gained.push([s.jester ? "The Jester's win" : killer ? "Won as the killer" : "Won the weekend", killer || s.jester ? 90 : 60]);
+    const hide = s.mode === "hide";
+    if (hide) {                                                          // hide and seek counts as a role of its own
+      const k = s.seeker ? "seeker" : "hider";
+      r.jobs[k] = (r.jobs[k] || 0) + 1;
+      if (s.won) r.jobWins[k === "seeker" || s.role === "hunter" ? "seeker" : "hider"] = (r.jobWins[k === "seeker" || s.role === "hunter" ? "seeker" : "hider"] || 0) + 1;
+      r.found = r.found || 0;
+      r.catches = (r.catches || 0) + (s.catches || 0);
+    }
+    const gained = [[hide ? "Played hide and seek" : "Played a game", 40]];
+    if (s.won && hide) gained.push([s.role === "hider" ? "Made it to dawn" : "The hunt won", s.role === "hider" ? 90 : 60]);
+    else if (s.won) gained.push([s.jester ? "The Jester's win" : killer ? "Won as the killer" : "Won the weekend", killer || s.jester ? 90 : 60]);
+    if (s.catches) gained.push([`Found ${s.catches} ${s.catches === 1 ? "hider" : "hiders"}`, 20 * s.catches]);
     if (s.kills) gained.push([`${s.kills} murder${s.kills > 1 ? "s" : ""}`, 15 * s.kills]);
     if (s.rightVotes) gained.push([`Voted for a killer ×${s.rightVotes}`, 20 * s.rightVotes]);
     if (s.caught) gained.push(["Caught a killer", 30]);
-    if (s.survived && !killer) gained.push(["Survived", 15]);
+    if (s.survived && !killer && !hide) gained.push(["Survived", 15]);
     if (s.mission) gained.push(["Secret mission", 40]);
     if (s.awards.length) gained.push([`${s.awards.length} award${s.awards.length > 1 ? "s" : ""}`, 15 * s.awards.length]);
     if (s.saves) gained.push([`Saved a life ×${s.saves}`, 25 * s.saves]);
@@ -117,7 +132,7 @@ const AlibiProfile = (() => {
     const after = level(r.xp);
     const fresh = ACH.filter((a) => !r.ach[a.id] && a.test(r, s));
     for (const a of fresh) r.ach[a.id] = Date.now();
-    r.history = [{ t: Date.now(), map: s.map, role: s.role, job: s.job, won: s.won, xp, practice: s.practice }, ...r.history].slice(0, 20);
+    r.history = [{ t: Date.now(), map: s.map, role: s.role, job: hide ? (s.seeker ? "seeker" : "hider") : s.job, won: s.won, xp, practice: s.practice, mode: s.mode }, ...r.history].slice(0, 20);
     save(r);
     return { gained, xp, before, after, beforeXp: r.xp - xp, levelUp: after.level > before.level, fresh, dailyDone };
   }
@@ -186,7 +201,7 @@ const AlibiProfile = (() => {
     const stat = (n, label) => h("div", { class: "stat" }, h("b", {}, String(n)), h("small", { class: "muted" }, label));
     const pct = r.games ? Math.round((r.wins / r.games) * 100) : 0;
     const roles = [["guest", "🕯️", "Guest"], ["killer", "🔪", "Killer"], ["detective", "🕵️", "Detective"], ["doctor", "🩺", "Doctor"], ["shapeshifter", "🎭", "Shapeshifter"],
-      ["medium", "🔮", "Medium"], ["jester", "🃏", "Jester"], ["tracker", "🧭", "Tracker"], ["bodyguard", "🛡️", "Bodyguard"]];
+      ["medium", "🔮", "Medium"], ["jester", "🃏", "Jester"], ["tracker", "🧭", "Tracker"], ["bodyguard", "🛡️", "Bodyguard"], ["hider", "🙈", "Hider"], ["seeker", "🔦", "Seeker"]];
     const wear = (b) => { const x = load(); x.badge = x.badge === b ? null : b; save(x); close(); open(); if (typeof render === "function") render(); };
     const maps = typeof MAPLIST !== "undefined" ? MAPLIST : [];
     const sheet = h("div", { class: "sheet wide", role: "dialog", "aria-modal": "true", "aria-label": "Your profile" },
@@ -196,7 +211,7 @@ const AlibiProfile = (() => {
           h("span", { class: "xpbar big" }, h("i", { style: { width: `${lv.pct}%` } })), h("small", { class: "muted" }, `${r.xp} XP · ${lv.span - lv.into} to level ${lv.level + 1}`))),
       dailyCard(),
       h("div", { class: "stats" }, stat(r.games, "games"), stat(r.wins, "won"), stat(`${pct}%`, "win rate"), stat(r.best, "best streak"), stat(r.kills, "murders"),
-        stat(r.caught, "killers caught"), stat(r.missions, "missions"), stat(Object.keys(r.ach).length, "achievements")),
+        stat(r.caught, "killers caught"), stat(r.missions, "missions"), stat(r.catches || 0, "hiders found"), stat(Object.keys(r.ach).length, "achievements")),
       h("div", { class: "card stack" }, h("span", { class: "label" }, "Badges · wear one next to your name"),
         owned.length ? h("div", { class: "badges" }, owned.map((b) => h("button", { class: "badgebtn" + (r.badge === b ? " on" : ""), type: "button", "aria-pressed": String(r.badge === b), onClick: () => wear(b) }, b)))
           : h("p", { class: "muted small" }, "Unlock badges with achievements (the ones marked with a badge below).")),
@@ -211,7 +226,7 @@ const AlibiProfile = (() => {
         h("div", { class: "mapstats" }, maps.map((m) => h("div", { class: "mapstat" + (r.maps[m.id] ? "" : " none"), title: m.title }, h("span", {}, m.emoji), h("small", {}, r.maps[m.id] ? `×${r.maps[m.id]}` : "–"))))) : null,
       r.history.length ? h("div", { class: "card stack" }, h("span", { class: "label" }, "Recent games"),
         h("ol", { class: "history" }, r.history.slice(0, 8).map((x) => { const m = maps.find((y) => y.id === x.map);
-          return h("li", {}, h("span", {}, m ? m.emoji : "🎲"), h("span", { class: "grow" }, h("b", {}, x.won ? "Won" : "Lost"), ` as ${x.role === "killer" ? "the killer" : x.job ? `the ${x.job}` : "a guest"}`, x.practice ? " · practice" : ""),
+          return h("li", {}, h("span", {}, m ? m.emoji : "🎲"), h("span", { class: "grow" }, h("b", {}, x.won ? "Won" : "Lost"), x.mode === "hide" ? ` hide and seek, as ${x.job === "seeker" ? "a seeker" : "a hider"}` : ` as ${x.role === "killer" ? "the killer" : x.job ? `the ${x.job}` : "a guest"}`, x.practice ? " · practice" : ""),
             h("small", { class: "muted" }, `+${x.xp} XP · ${new Date(x.t).toLocaleDateString()}`)); }))) : null,
       r.games ? h("button", { class: "btn ghost sm", type: "button", onClick: async () => { if (await (typeof ask === "function" ? ask({ title: "Reset your profile?", text: "Your level, XP, achievements and record on this phone start again from zero.", ok: "Reset", danger: true }) : confirm("Reset your profile?"))) { save(blank()); close(); open(); if (typeof render === "function") render(); } } }, "Reset profile") : null);
     back.append(sheet);

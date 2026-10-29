@@ -134,6 +134,10 @@ class Rules(unittest.TestCase):
         self.assertIsNone(game.meetup(g, "I was in the kitchen at 9"), "a story, not a plan")
         plan = game.remember_meet(g, rosa, me, "meet me in the kitchen at 3")
         self.assertEqual((plan["room"], plan["hour"], plan["day"]), ("kitchen", 3, 1))
+        g["hour"] = 2
+        self.assertEqual(game.bot_move(g, rosa), "dining", "the kitchen is two rooms from the hall: she starts walking")
+        self.assertIn(rosa["pid"], g["meets"])
+        game.today(g)["hours"].append({"where": {rosa["pid"]: "dining"}})
         g["hour"] = 3
         self.assertEqual(game.bot_move(g, rosa), "kitchen", "she keeps her promise")
         self.assertNotIn(rosa["pid"], g["meets"])
@@ -152,12 +156,26 @@ class Rules(unittest.TestCase):
         self.assertEqual(v["here"]["people"], [])
         self.assertEqual(v["here"]["count"], 1)
 
-    def test_more_guests_open_more_rooms(self):
-        for n, rooms in ((4, 3), (5, 4), (6, 4), (7, 5), (8, 6)):
+    def test_the_whole_house_is_open_and_you_walk_one_door_an_hour(self):
+        for n in (4, 8):
             g = game.new_game()
             for _ in range(n):
                 game.add_bot(g)
-            self.assertEqual(len(game.rooms_of(g)), rooms, n)
+            self.assertEqual(len(game.rooms_of(g)), 10, n)
+        g = game.new_game()
+        a, b, c, k = (game.add_player(g, x) for x in ("Ann", "Ben", "Cat", "Kay"))
+        game.start(g)
+        for p in g["players"]:
+            p["role"] = "guest"
+        k["role"] = "killer"
+        game.new_day(g)
+        for beat in game.today(g)["beats"]:
+            beat.update(fx=None)
+        self.assertEqual(game.reach(g, a), ["library", "ballroom", "hall", "dining", "bedroom"], "everyone starts in the hall")
+        self.assertIn("ballroom", game.reach(g, k))
+        game.today(g)["hours"].append({"where": {a["pid"]: "library", k["pid"]: "library"}})
+        self.assertEqual(game.reach(g, a), ["library", "hall"], "the library has one door")
+        self.assertEqual(game.reach(g, k), ["library", "study", "hall"], "the killer knows the passage behind the bookcase")
 
     def test_people_are_the_killer_more_often_than_bots(self):
         human_killer, trials = 0, 400
@@ -213,7 +231,7 @@ class Rules(unittest.TestCase):
             claim = game.claim_for(g, k)
             self.assertEqual(claim["0"], "library", "nothing to hide at 9 AM")
             self.assertEqual(claim["1"], "library", "the one room nobody was in when it picked up the knife")
-            self.assertEqual(claim["2"], "kitchen", "the one room nobody was in during the murder")
+            self.assertEqual(claim["2"], "hall", "the one room you could walk to from the library that nobody was in during the murder")
         with mock.patch.object(game, "BOT_LIAR_SKILL", 0):              # a clumsy one: just moves itself away from the murder
             claim = game.claim_for(g, k)
             self.assertEqual(claim["1"], "kitchen")
@@ -376,7 +394,8 @@ class Api(unittest.TestCase):
         self.assertEqual(g["phase"], "move")
         self.assertEqual(self.c.post(url, json={**auth, "type": "chat", "text": "hi"}).status_code, 400, "no meeting yet")
         game.today(g)["beats"][0].update(fx=None)
-        self.assertEqual(self.c.post(url, json={**auth, "type": "move", "room": "garden"}).status_code, 200)
+        self.assertEqual(self.c.post(url, json={**auth, "type": "move", "room": "cellar"}).status_code, 400, "too far from the hall")
+        self.assertEqual(self.c.post(url, json={**auth, "type": "move", "room": "library"}).status_code, 200)
         self.assertEqual(g["phase"], "room", "everyone human has moved, bots move at once")
         v = self.c.post(url, json={**auth, "type": "room", "text": "Hello?"}).get_json()
         self.assertEqual(v["roomchat"][-1]["text"], "Hello?")
@@ -384,7 +403,7 @@ class Api(unittest.TestCase):
         v = self.c.post(url, json={**auth, "type": "dm", "to": bot["pid"], "text": "Where were you?"}).get_json()
         self.assertTrue(any(m["text"] == "Where were you?" for m in v["dms"]))
         self.assertEqual(self.c.post(url, json={**auth, "type": "signal", "to": bot["pid"], "data": {}}).status_code, 400, "bots have no voice")
-        v = self.c.post(url, json={**auth, "type": "do", "act": "look", "take": "rope"}).get_json()
+        v = self.c.post(url, json={**auth, "type": "do", "act": "look", "take": "candlestick"}).get_json()
         self.assertEqual(g["phase"], "room", "choosing what to do doesn't end the hour: you can stay and talk")
         self.c.post(url, json={**auth, "type": "leave_room"})
         self.assertEqual(g["phase"], "move", "everyone human has left the room")
@@ -609,7 +628,7 @@ class Api(unittest.TestCase):
         self.assertEqual(game.view(g, host)["rolesOn"], ["detective", "medium"])
         game.start(g)
         self.assertEqual(sorted(p["job"] for p in g["players"] if p.get("job")), ["detective", "medium"])
-        self.assertEqual(game.view(g, host)["cast"], {"killers": 1, "jobs": ["detective", "medium"]})
+        self.assertEqual(game.view(g, host)["cast"], {"killers": 1, "jobs": ["detective", "medium"], "hunters": 0})
 
     def test_the_shapeshifter_wears_a_face(self):
         g, (a, b, c, k), post = self.fixed_game()

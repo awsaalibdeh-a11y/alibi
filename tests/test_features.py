@@ -226,7 +226,8 @@ class Board(Base):
         rows = {r["name"]: r for r in v["board"]["rows"]}
         self.assertEqual(rows["Kay"]["cells"][:2], ["Library", "Kitchen"])
         kinds = [f["kind"] for f in rows["Kay"]["flags"]]
-        self.assertEqual(kinds.count("lie"), 2, rows["Kay"]["flags"])
+        self.assertEqual(kinds.count("lie"), 3, rows["Kay"]["flags"])
+        self.assertIn("nobody can walk there from the Library", " ".join(f["text"] for f in rows["Kay"]["flags"]), "Library to Kitchen is not one door")
         self.assertEqual(rows["Ben"]["flags"], [], "Ben told the truth")
         self.assertFalse(rows["Cat"]["claimed"])
         self.assertEqual(v["board"]["rows"][0]["name"], "Kay", "the most suspicious first")
@@ -268,7 +269,8 @@ class Emotes(Base):
         game.set_phase(g, "vote", 30)
         game.bot_votes(g)
         game.tally(g)
-        self.assertTrue(game.view(g, me)["emotes"], "bots react")
+        alive = next(q for q in g["players"] if q["alive"])                # whoever wasn't voted out sees the room react
+        self.assertTrue(game.view(g, alive)["emotes"], "bots react")
 
 
 class Ghosts(Base):

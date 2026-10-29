@@ -40,11 +40,16 @@ ROOMS = [
     {"id": "ballroom", "name": "Ballroom", "emoji": "🎻", "items": ["iron poker", "silk scarf"], "act": "Play the piano"},
     {"id": "study", "name": "Study", "emoji": "🖋️", "items": ["letter opener", "brass paperweight"], "act": "Write letters"},
     {"id": "cellar", "name": "Cellar", "emoji": "🍷", "items": ["wine bottle", "piano wire"], "act": "Pick a vintage"},
+    {"id": "hall", "name": "Entrance Hall", "emoji": "🕰️", "items": ["walking cane", "bell rope"], "act": "Wind the grandfather clock"},
+    {"id": "dining", "name": "Dining Room", "emoji": "🍽️", "items": ["carving fork", "silver candelabra"], "act": "Polish the silver"},
+    {"id": "bedroom", "name": "Master Bedroom", "emoji": "🛏️", "items": ["dressing gown cord", "hat pin"], "act": "Rest your feet"},
+    {"id": "attic", "name": "Dusty Attic", "emoji": "🕸️", "items": ["old sabre", "rocking horse"], "act": "Rummage through old trunks"},
 ]
 ROOM = {r["id"]: r for r in ROOMS}
 HOME = {item: r["id"] for r in ROOMS for item in r["items"]}
 KIND = {"candlestick": "blunt", "heavy atlas": "blunt", "rolling pin": "blunt", "iron poker": "blunt", "brass paperweight": "blunt", "wine bottle": "blunt",
-        "kitchen knife": "sharp", "garden shears": "sharp", "letter opener": "sharp", "rope": "cord", "silk scarf": "cord", "piano wire": "cord"}
+        "kitchen knife": "sharp", "garden shears": "sharp", "letter opener": "sharp", "rope": "cord", "silk scarf": "cord", "piano wire": "cord",
+        "walking cane": "blunt", "bell rope": "cord", "carving fork": "sharp", "silver candelabra": "blunt", "dressing gown cord": "cord", "hat pin": "sharp", "old sabre": "sharp", "rocking horse": "blunt"}
 CAUSE = {"blunt": "struck on the head with something heavy", "sharp": "stabbed with something sharp", "cord": "strangled with a cord of some kind"}
 HOURS = ["9 AM", "11 AM", "1 PM", "3 PM", "5 PM"]
 COLORS = ["#d9a441", "#3f8fc9", "#d05a74", "#3fa56b", "#8d6be0", "#e07b39", "#1fa3a0", "#7d7466"]
@@ -80,7 +85,7 @@ BEATS = [
     {"text": "The lawyer's car crunches up the drive. The will is in his briefcase.", "fx": None},
 ]
 MIN_PLAYERS, MAX_PLAYERS, QUEUE_SIZE = 4, 8, 6
-T = {"countdown": 4, "roles": 14, "move": 20, "room": 60, "body": 12, "quiet": 8, "talk": 150, "vote": 35, "result": 9, "queue": 30}
+T = {"countdown": 4, "roles": 14, "move": 20, "room": 60, "body": 12, "quiet": 8, "talk": 150, "vote": 35, "result": 9, "queue": 30, "hide": 30}
 PACE = {"quick": 0.6, "normal": 1.0, "relaxed": 1.7}                  # the host's pick in the lobby: how long each step lasts, against the table above
 
 
@@ -89,8 +94,113 @@ def tm(g, key):
     return max(5, round(T[key] * PACE.get(g.get("pace"), 1.0)))
 
 
-ROOMS_FOR = {4: 3, 5: 4, 6: 4, 7: 5, 8: 6}                            # guests -> rooms: few enough that people keep meeting
-ROOM_ORDER = ["library", "kitchen", "garden", "study", "ballroom", "cellar"]
+
+# ---------- the house map: every room on a floor plan, joined by doors and stairs; you walk one room an hour ----------
+# Every map shares one plan (the slots mean the same everywhere: the garden slot is outdoors, the hall the middle of the house).
+ROOM_ORDER = ["library", "kitchen", "garden", "study", "ballroom", "cellar", "hall", "dining", "bedroom", "attic"]
+PLAN = {"attic": (0, 0, 1), "bedroom": (1, 0, 1), "study": (2, 0, 1),                       # (column, row, rows tall): upstairs
+        "library": (0, 1, 1), "hall": (1, 1, 1), "ballroom": (2, 1, 1), "garden": (3, 1, 2),  # the ground floor, the garden outside
+        "dining": (1, 2, 1), "kitchen": (2, 2, 1), "cellar": (2, 3, 1)}                       # the back of the house, and down below
+DOORS = [("hall", "library"), ("hall", "ballroom"), ("hall", "dining"), ("hall", "bedroom"), ("bedroom", "attic"), ("bedroom", "study"),
+         ("dining", "kitchen"), ("kitchen", "cellar"), ("kitchen", "garden"), ("ballroom", "garden")]
+SECRETS = [("library", "study"), ("attic", "kitchen"), ("cellar", "garden")]                  # only the killer (or the seekers) know these
+START_ROOM = "hall"                                                                           # everyone starts the day in the middle of the house
+MODES = ("murder", "hide")                                                                   # the murder weekend, or hide and seek
+NIGHT = ["10 PM", "11 PM", "Midnight", "1 AM", "2 AM", "3 AM", "4 AM", "5 AM"]               # hide and seek lasts one night
+SPOTS = {"door": "🚪 behind the door", "under": "🛋️ under the furniture", "shadows": "🌑 in the shadows"}
+SEEKER_STEPS, SEEKER_SEARCHES = 2, 2                                   # a seeker runs up to two rooms an hour, and looks in two hiding places
+CRAMP = 2                                                              # hours keeping still before your legs cramp and you can be heard
+NIGHT_BEATS = ["The house goes quiet. Somewhere, someone is counting.", "A floorboard creaks upstairs.", "The wind rattles every window in the house.",
+               "A clock chimes somewhere far off.", "Something falls over in the dark. Nobody goes to look.", "The lights flicker, then steady.",
+               "A door swings shut on its own.", "The first grey light shows at the windows. Nearly dawn…", "A dog barks outside, once.",
+               "Footsteps on the stairs… or was it the house settling?"]
+
+
+def hiding(g):
+    return g.get("mode") == "hide"
+
+
+def hours_of(g):
+    return NIGHT if hiding(g) else HOURS
+
+
+def neighbours(room, secret=False):
+    """The rooms one door (or stair) away; with secret=True, the hidden passages too."""
+    out = {b for a, b in DOORS if a == room} | {a for a, b in DOORS if b == room}
+    if secret:
+        out |= {b for a, b in SECRETS if a == room} | {a for a, b in SECRETS if b == room}
+    return out
+
+
+def knows_secrets(p):
+    return p["role"] in ("killer", "hunter")
+
+
+def came_from(g, p):
+    """Where someone is as an hour begins: the room they ended the last hour in, or the middle of the house first thing."""
+    d = today(g)
+    if d and d["hours"]:
+        return d["hours"][-1]["where"].get(p["pid"], START_ROOM)
+    return START_ROOM
+
+
+def reach(g, p):
+    """The rooms someone may pick this hour: where they are, or one door away (a killer or a seeker also knows the secret
+    passages); never the garden while the weather has it locked."""
+    b = beat(g) or {}
+    locked = b.get("room") if b.get("fx") == "rain" else None
+    here = came_from(g, p)
+    if hiding(g) and p["role"] == "hunter" and g["hour"] == 0 and not p.get("caught"):
+        return [here]                                                  # the seekers count to a hundred first
+    near = {here} | neighbours(here, knows_secrets(p))
+    if hiding(g) and p["role"] == "hunter":                            # seekers run: a room further each hour
+        for _ in range(SEEKER_STEPS - 1):
+            near |= {n for r in list(near) for n in neighbours(r, True)}
+    out = [r for r in ROOM_ORDER if r in near and r != locked and r in ROOM]
+    return out or [r for r in ROOM_ORDER if r in neighbours(here) and r != locked]
+
+
+def step_towards(here, goal):
+    """The next room on the shortest walk from here to there, through doors."""
+    seen, frontier = {here: None}, [here]
+    while frontier:
+        nxt = []
+        for r in frontier:
+            for n in sorted(neighbours(r)):
+                if n not in seen:
+                    seen[n] = r
+                    nxt.append(n)
+        frontier = nxt
+    if goal not in seen or goal == here:
+        return here
+    while seen[goal] != here:
+        goal = seen[goal]
+    return goal
+
+
+def passing(g, d, where):
+    """Two people who went through the same door in opposite directions this hour passed each other (not in a secret passage)."""
+    out = {}
+    for p in g["players"]:
+        a = p["pid"]
+        if a not in where:
+            continue
+        frm = came_from(g, p)
+        if frm == where[a]:
+            continue
+        for q in g["players"]:
+            b = q["pid"]
+            if b != a and b in where and came_from(g, q) == where[a] and where[b] == frm and where[a] in neighbours(frm):
+                out.setdefault(a, []).append(b)
+    return out
+
+
+def plan_view(g, p, over=False):
+    """The floor plan for the phone: which rooms, where they sit, the doors, and the secret passages for those who know them."""
+    ids = room_ids(g)
+    return {"cells": [{"id": r, "col": PLAN[r][0], "row": PLAN[r][1], "span": PLAN[r][2]} for r in ids if r in PLAN],
+            "doors": [list(x) for x in DOORS if x[0] in ids and x[1] in ids],
+            "secrets": [list(x) for x in SECRETS] if (knows_secrets(p) or not p["alive"] or over) else []}
 
 # ---------- maps: Wrenmoor is the original; the others live in maps.py. A game remembers its map, and the world below is swapped to match ----------
 import copy as _copy
@@ -139,7 +249,7 @@ REACTIONS = ["👍", "😂", "😱", "🤔", "🔪", "👀"]
 HAUNTS = ["👻", "🔪", "👀", "🕯️", "❄️", "❓"]                           # what a ghost can send rattling through a room
 EMOTES = ["😱", "😂", "🤔", "😡", "😇", "👀", "🔪", "🙏", "💀", "👏", "🫣", "🤫"]   # quick reactions that float up over the room or the meeting
 EMOTE_GAP, EMOTE_LIFE = 1.2, 8                                          # seconds between two of yours; how long one stays on screen
-BADGES = ["🕵️", "🔪", "🩺", "🎭", "🔮", "🃏", "🧭", "🛡️", "👻", "🏆", "🔥", "💎", "👑", "🌙", "⭐"]   # the badge a player has earned shows next to their name
+BADGES = ["🕵️", "🔪", "🩺", "🎭", "🔮", "🃏", "🧭", "🛡️", "👻", "🏆", "🔥", "💎", "👑", "🌙", "⭐", "🙈", "🔦"]   # the badge a player has earned shows next to their name
 HUMAN_KILLER_WEIGHT = 2.5                                            # people get the knife more often than bots do
 BOT_LIAR_SKILL = 0.25                                                 # how often a killer bot tells a lie nobody can catch
 DETECTIVE_EAGERNESS = 0.5                                             # how often a bot detective investigates when it can
@@ -173,11 +283,11 @@ def _cleanup():
         del GAMES[c]
 
 
-def new_game(public=False, map_id="wrenmoor"):
+def new_game(public=False, map_id="wrenmoor", mode="murder"):
     _cleanup()
     g = {"code": _code(), "public": public, "created": now(), "touched": now(), "v": 0, "phase": "lobby", "deadline": None,
          "players": [], "host": None, "day": 0, "hour": 0, "days": [], "items": {}, "carry": {}, "winner": None, "start_at": None,
-         "dms": [], "signals": {}, "map": map_id if map_id in MAPS else "wrenmoor"}
+         "dms": [], "signals": {}, "map": map_id if map_id in MAPS else "wrenmoor", "mode": mode if mode in MODES else "murder"}
     GAMES[g["code"]] = g
     return g
 
@@ -251,9 +361,8 @@ def set_phase(g, phase, secs=None):
 
 
 def rooms_of(g):
-    """The more guests, the more of the house is open: three rooms for four guests, up to all six for eight."""
-    ids = ROOM_ORDER[:ROOMS_FOR.get(len(g["players"]), 3 if len(g["players"]) < 4 else 6)]
-    return [r for r in ROOMS if r["id"] in ids]
+    """Every room of the house, in floor-plan order (walking one room an hour keeps people meeting)."""
+    return [ROOM[r] for r in ROOM_ORDER if r in ROOM]
 
 
 def room_ids(g):
@@ -274,9 +383,11 @@ def start(g):
     use_map(g)
     while len(g["players"]) < MIN_PLAYERS:
         add_bot(g)
+    if hiding(g):
+        return start_hide(g)
     n = len(g["players"])
     for p, (title, blurb) in zip(g["players"], random.sample(CHARACTERS, n)):
-        p.update(role="guest", alive=True, ready=False, ejected=False, killed=None, searched=False, noted=False, char={"title": title, "blurb": blurb})
+        p.update(role="guest", alive=True, ready=False, ejected=False, killed=None, searched=False, noted=False, char={"title": title, "blurb": blurb}, caught=None)
     chosen = [q for q in g["players"] if q.get("want") == "killer"]   # Aws's perk: pick your side
     pool = [q for q in g["players"] if q.get("want") != "guest" and not (g.get("practice") and not q["bot"])] or list(g["players"])   # practice: you're never the killer
     for _ in range(2 if n >= 7 else 1):
@@ -520,13 +631,17 @@ def haunt(g, p, room, emoji):
 def bot_move(g, p):
     d = today(g)
     last = d["hours"][-1]["where"].get(p["pid"]) if d["hours"] else None
-    rooms = [r for r in room_ids(g) if not (beat(g)["fx"] == "rain" and r == beat(g)["room"])]
+    rooms = reach(g, p)
     meet = (g.get("meets") or {}).get(p["pid"])
     if meet and (meet["day"], meet["hour"]) < (g["day"], g["hour"]):
         g["meets"].pop(p["pid"])                                       # missed it: forget it
     elif meet and (meet["day"], meet["hour"]) == (g["day"], g["hour"]) and meet["room"] in rooms:
         g["meets"].pop(p["pid"])
         return meet["room"]                                            # a promise is a promise
+    elif meet and meet["day"] == g["day"] and meet["room"] not in rooms:
+        step = step_towards(came_from(g, p), meet["room"])            # still a walk away: head that way
+        if step in rooms:
+            return step
     if p["role"] == "killer" and not g["carry"].get(p["pid"]):
         options = [r for r in rooms if any(g["items"].get(i) == r for i in ROOM[r]["items"])]
         return random.choice(options or rooms)
@@ -543,16 +658,14 @@ def resolve_move(g):
                 d["guard"][p["pid"]] = random.choice(others)["pid"]
     where = {}
     for p in living(g):
-        room = d["moves"].get(p["pid"])
+        room = d["moves"].get(p["pid"])                                # a person's pick was checked when they made it
         if not room:
-            last = d["hours"][-1]["where"].get(p["pid"]) if d["hours"] else None
-            room = bot_move(g, p) if p["bot"] else (last or random.choice(room_ids(g)))
-        if b["fx"] == "rain" and room == b["room"]:
-            room = "library"
+            allowed = reach(g, p)
+            room = bot_move(g, p) if p["bot"] else (came_from(g, p) if came_from(g, p) in allowed else allowed[0])
         where[p["pid"]] = room
     bot_jobs_at_dawn(g, d)
-    for pid, s in (d.get("shadows") or {}).items():                    # the Bodyguard goes wherever the one they shadow goes
-        if s["hour"] == g["hour"] and pid in where and s["target"] in where:
+    for pid, s in (d.get("shadows") or {}).items():                    # the Bodyguard follows them out of the room, through the same door
+        if s["hour"] == g["hour"] and pid in where and s["target"] in where and came_from(g, player(g, pid)) == came_from(g, player(g, s["target"])):
             where[pid] = where[s["target"]]
     for p in living(g):                                                # a shapeshifter bot with a weapon borrows the face of someone elsewhere
         if p["bot"] and p.get("job") == "shapeshifter" and g["carry"].get(p["pid"]) and p["pid"] not in d.get("shifted", {}) and random.random() < 0.5:
@@ -562,7 +675,8 @@ def resolve_move(g):
     for p in living(g):                                                # a killer bot with a weapon sometimes kills the lights where it's going
         if p["bot"] and p["role"] == "killer" and g["carry"].get(p["pid"]) and can_cut(g, where[p["pid"]]) and random.random() < 0.3:
             cut_lights(g, where[p["pid"]])
-    d["cur"] = {"where": where, "idle": [pid for pid in where if pid not in d["moves"] and not player(g, pid)["bot"]]}
+    d["cur"] = {"where": where, "idle": [pid for pid in where if pid not in d["moves"] and not player(g, pid)["bot"]],
+                "passed": passing(g, d, where)}
     d["moves"] = {}
     d["acts"] = {}
     d["leaving"] = set()
@@ -594,9 +708,10 @@ def bot_jobs_at_dawn(g, d):
             s = suspicion(g, p) if d["hours"] else {}
             target = max(s, key=lambda q: s[q] + random.random()) if s else random.choice(others)["pid"]
             d["tracks"][p["pid"]] = {"target": target, "hour": g["hour"]}
-        if p.get("job") == "bodyguard" and p["pid"] not in d.setdefault("shadows", {}) and (late or random.random() < 0.35):
+        here = [q for q in others if came_from(g, q) == came_from(g, p)]
+        if p.get("job") == "bodyguard" and here and p["pid"] not in d.setdefault("shadows", {}) and (late or random.random() < 0.35):
             s = suspicion(g, p) if d["hours"] else {}
-            trusted = sorted(others, key=lambda q: s.get(q["pid"], 0) + random.random())   # shadow someone it trusts
+            trusted = sorted(here, key=lambda q: s.get(q["pid"], 0) + random.random())     # shadow someone in the room it trusts
             d["shadows"][p["pid"]] = {"target": trusted[0]["pid"], "hour": g["hour"]}
 
 
@@ -765,7 +880,219 @@ def resolve_room(g):
 
 def record_hour(g, acts, events, looks):
     d = today(g)
-    d["hours"].append({"where": d["cur"]["where"], "acts": acts, "events": events, "looks": looks, "idle": d["cur"]["idle"], "beat": beat(g)})
+    d["hours"].append({"where": d["cur"]["where"], "acts": acts, "events": events, "looks": looks, "idle": d["cur"]["idle"], "beat": beat(g),
+                       "passed": d["cur"].get("passed", {})})
+
+
+# ---------- hide and seek: one night on the house map. The seekers count, then hunt; whoever they find joins the hunt ----------
+def start_hide(g):
+    n = len(g["players"])
+    for p, (title, blurb) in zip(g["players"], random.sample(CHARACTERS, n)):
+        p.update(role="hider", alive=True, ready=False, ejected=False, killed=None, searched=False, noted=False, char={"title": title, "blurb": blurb},
+                 job=None, belled=False, mission=None, caught=None)
+    chosen = [q for q in g["players"] if q.get("want") == "killer"]   # Aws's perk: "killer" means the seeker here
+    pool = [q for q in g["players"] if q.get("want") != "guest"] or list(g["players"])
+    for _ in range(2 if n >= 7 else 1):
+        p = chosen.pop(0) if chosen else random.choice(pool)
+        if p in pool:
+            pool.remove(p)
+        p["role"] = "hunter"
+    g.update(day=0, days=[], winner=None, dms=[], signals={}, meets={}, searches=[], findings=[], trails=[], emotes=[], jester=None, ai_calls=0,
+             started=now(), carry={})
+    set_phase(g, "roles", tm(g, "roles"))
+
+
+def new_night(g):
+    g.update(day=1, hour=0, carry={})
+    g["items"] = {item: HOME[item] for item in HOME}
+    middle = [b for i, b in enumerate(NIGHT_BEATS) if i not in (0, 7)]
+    texts = [NIGHT_BEATS[0]] + random.sample(middle, len(NIGHT) - 2) + [NIGHT_BEATS[7]]
+    g["days"] = [{"n": 1, "hours": [], "beats": [{"text": t, "fx": None} for t in texts], "moves": {}, "acts": {}, "cur": None, "kill": None, "found": None,
+                  "chat": [], "roomchat": {}, "votes": {}, "ready": set(), "claims": {}, "ejected": None, "bot_plan": [], "missing": [], "showdown": False,
+                  "kills": [], "gazette": None, "hidden": {}, "catches": []}]
+    set_phase(g, "move", tm(g, "move"))
+
+
+def audible(g, d, pid):
+    """Can a seeker hear this hider? Anyone moving about can be heard; keeping still is silent, until your legs cramp."""
+    x = (d.get("hidden") or {}).get(pid)
+    return not (x and x["since"] < g["hour"]) or g["hour"] - x["since"] >= CRAMP
+
+
+def prehidden(g, d, pid):
+    """Tucked away since an earlier hour: nobody walking in sees them (they can only be heard breathing)."""
+    x = (d.get("hidden") or {}).get(pid)
+    return bool(hiding(g) and x and x["since"] < g["hour"])
+
+
+def next_door(g, p, room, where):
+    """What you can hear through the doors: voices next door; in hide and seek, a hider hears the seekers' footsteps and a seeker
+    hears anyone moving about (someone keeping still in a hiding place makes no sound)."""
+    d = today(g)
+    out = []
+    near = neighbours(room, hiding(g) and p["role"] == "hunter")
+    if hiding(g) and p["role"] == "hunter":                            # sharp ears: as far as a seeker can run
+        for _ in range(SEEKER_STEPS - 1):
+            near = near | {n for r in near for n in neighbours(r, True)}
+        near.discard(room)
+    for r in [x for x in ROOM_ORDER if x in near]:
+        there = [q for q, rr in where.items() if rr == r and q != p["pid"]]
+        if hiding(g):
+            if p["role"] == "hunter":
+                n = sum(1 for q in there if player(g, q)["role"] == "hider" and audible(g, d, q))
+                out.append({"room": r, "count": n, "hunter": False})
+            else:
+                out.append({"room": r, "count": 0, "hunter": any(player(g, q)["role"] == "hunter" for q in there)})
+        else:
+            out.append({"room": r, "count": len(there), "hunter": False})
+    return out
+
+
+def hide_bot_move(g, p):
+    opts = reach(g, p)
+    here = came_from(g, p)
+    at = {q["pid"]: came_from(g, q) for q in g["players"]}
+    d = today(g)
+    if p["role"] == "hunter":
+        if len(opts) == 1:
+            return opts[0]
+        heard = [r for r in opts if r != here and any(player(g, q)["role"] == "hider" and at[q] == r and audible(g, d, q) for q in at)]
+        if heard and random.random() < 0.8:                            # follow the noise
+            return random.choice(heard)
+        return random.choice([r for r in opts if r != here] or opts)
+    near = {here} | neighbours(here)
+    danger = {r for q, r in at.items() if player(g, q)["role"] == "hunter" and r in near}
+    cramped = p["pid"] in d["hidden"] and g["hour"] - d["hidden"][p["pid"]]["since"] >= CRAMP
+    if p["pid"] in d["hidden"] and here not in danger and not cramped and random.random() < 0.7:
+        return here                                                    # tucked away and nobody near: keep still
+    safe = [r for r in opts if r not in danger and not (neighbours(r) & danger)]
+    return random.choice(safe or [r for r in opts if r not in danger] or opts)
+
+
+def resolve_hide_move(g):
+    d = today(g)
+    where = {}
+    for p in g["players"]:
+        allowed = reach(g, p)
+        room = d["moves"].get(p["pid"])
+        if room not in allowed:
+            here = came_from(g, p)
+            room = hide_bot_move(g, p) if p["bot"] else (here if here in allowed else allowed[0])
+        where[p["pid"]] = room
+    for pid in list(d["hidden"]):                                      # leaving your hiding place puts you in the open again
+        if where.get(pid) != came_from(g, player(g, pid)):
+            d["hidden"].pop(pid)
+    d["cur"] = {"where": where, "idle": [pid for pid in where if pid not in d["moves"] and not player(g, pid)["bot"]], "passed": passing(g, d, where)}
+    d["moves"], d["acts"], d["leaving"] = {}, {}, set()
+    set_phase(g, "room", tm(g, "hide"))
+
+
+def hide_bot_act(g, p):
+    d = today(g)
+    if p["role"] == "hunter":
+        room = d["cur"]["where"][p["pid"]]
+        prey = [q for q in occupants(g, room) if player(g, q)["role"] == "hider"]
+        return {"search": random.sample(list(SPOTS), SEEKER_SEARCHES)} if prey else {}
+    keep = d["hidden"].get(p["pid"])
+    return {"spot": keep["spot"] if keep and random.random() < 0.8 else random.choice(list(SPOTS))}
+
+
+def resolve_hide_room(g):
+    d, h = today(g), g["hour"]
+    where = d["cur"]["where"]
+    acts = {}
+    for pid in where:
+        p = player(g, pid)
+        a = d["acts"].get(pid)
+        if a is None:
+            keep = d["hidden"].get(pid)
+            a = hide_bot_act(g, p) if p["bot"] else {"spot": keep["spot"]} if keep and p["role"] == "hider" else {"idle": True}
+        acts[pid] = a
+    for pid, a in acts.items():                                        # where everyone ends the hour hiding
+        if player(g, pid)["role"] != "hider":
+            continue
+        if a.get("spot") in SPOTS:
+            old = d["hidden"].get(pid)
+            d["hidden"][pid] = {"spot": a["spot"], "since": old["since"] if old and old["spot"] == a["spot"] else h}
+        else:
+            d["hidden"].pop(pid, None)
+    hunters = [q["pid"] for q in g["players"] if q["role"] == "hunter"]
+    hidden = {k: dict(v) for k, v in d["hidden"].items()}
+    catches = []
+    for pid in hunters if h > 0 else []:                               # a seeker finds everyone in the open, and whoever is in the spot they search
+        room, look = where[pid], searched(acts[pid])               # (not at 10 PM: their eyes are shut, counting)
+        for q in occupants(g, room):
+            if player(g, q)["role"] != "hider" or q in {c["who"] for c in catches}:
+                continue
+            spot = (d["hidden"].get(q) or {}).get("spot")
+            if spot is None or spot in look:
+                catches.append({"by": pid, "who": q, "room": room, "spot": spot, "hour": h})
+    for c in catches:
+        prey = player(g, c["who"])
+        prey.update(role="hunter", caught={"hour": h, "by": c["by"], "room": c["room"], "spot": c["spot"]})
+        d["hidden"].pop(c["who"], None)
+    d["catches"] += catches
+    record_hour(g, acts, {r["id"]: [] for r in ROOMS}, {})
+    d["hours"][-1].update(catches=catches, hidden=hidden, hunters=hunters)
+    for c in catches:
+        for q in [x for x in occupants(g, c["room"]) if player(g, x)["bot"] and x != c["who"]][:1]:
+            emote(g, player(g, q), random.choice(["😱", "👀", "😂"]), f"room:{g['day']}:{h}:{c['room']}")
+    if not any(q["role"] == "hider" for q in g["players"]):
+        return game_over(g, "hunters")
+    if h + 1 >= len(NIGHT):
+        return game_over(g, "hiders")
+    g["hour"] = h + 1
+    set_phase(g, "move", tm(g, "move"))
+
+
+def searched(a):
+    """The hiding places a seeker looked in this hour (one or a list)."""
+    x = (a or {}).get("search")
+    return [x] if isinstance(x, str) else list(x or [])
+
+
+def spot_text(spot):
+    return SPOTS[spot] if spot in SPOTS else "out in the open"
+
+
+def hide_highlights(g):
+    d = today(g)
+    if not d:
+        return []
+    out, cs = [], d.get("catches", [])
+    if cs:
+        c = cs[0]
+        out.append({"emoji": "🙈", "title": "First found", "text": f"{name_of(g, c['who'])} was found {spot_text(c['spot'])} in the {ROOM[c['room']]['name']} at {NIGHT[c['hour']]}, by {name_of(g, c['by'])}."})
+        tally = {}
+        for c in cs:
+            tally[c["by"]] = tally.get(c["by"], 0) + 1
+        top = max(tally, key=tally.get)
+        out.append({"emoji": "🎯", "title": "Top seeker", "text": f"{name_of(g, top)} found {tally[top]} {'hider' if tally[top] == 1 else 'hiders'}."})
+    for i, hr in enumerate(d["hours"]):                                # a seeker searched the wrong spot, right next to someone
+        for pid in hr.get("hunters", []):
+            look = searched(hr["acts"].get(pid))
+            room = hr["where"].get(pid)
+            for q, x in (hr.get("hidden") or {}).items():
+                if look and hr["where"].get(q) == room and x["spot"] not in look and q not in {c["who"] for c in hr.get("catches", [])}:
+                    out.append({"emoji": "😮‍💨", "title": "Close call", "text": f"At {NIGHT[i]}, {name_of(g, pid)} searched {' and '.join(spot_text(x_) for x_ in look)} in the {ROOM[room]['name']}. "
+                                f"{name_of(g, q)} was {spot_text(x['spot'])}, holding their breath."})
+                    break
+            else:
+                continue
+            break
+    still = {}
+    for hr in d["hours"]:
+        for q in (hr.get("hidden") or {}):
+            still[q] = still.get(q, 0) + 1
+    survivors = [q for q in g["players"] if q["role"] == "hider"]
+    if survivors:
+        best = max(survivors, key=lambda q: still.get(q["pid"], 0))
+        out.append({"emoji": "🌅", "title": "Made it to dawn", "text": f"{', '.join(q['name'] for q in survivors)} {'was' if len(survivors) == 1 else 'were'} still hidden at 5 AM."})
+        if still.get(best["pid"]):
+            out.append({"emoji": "🫥", "title": "Best hiding place", "text": f"{best['name']} spent {still[best['pid']]} {'hour' if still[best['pid']] == 1 else 'hours'} tucked away."})
+    elif cs:
+        out.append({"emoji": "🏁", "title": "The last one", "text": f"{name_of(g, cs[-1]['who'])} was the last to be found, at {NIGHT[cs[-1]['hour']]}."})
+    return out[:6]
 
 
 def missing(g):
@@ -878,6 +1205,10 @@ def suspicion(g, me):
         k = d["kill"]
         if k and claim.get(str(k["hour"])) == k["room"]:
             score[q] += 1
+        for i in range(len(d["hours"])):                               # a story nobody could walk: only a secret passage explains it
+            said, before = claim.get(str(i)), claim.get(str(i - 1), START_ROOM if i == 0 else None)
+            if said in ROOM and before in ROOM and said != before and said not in neighbours(before):
+                score[q] += 2
     for dd in g["days"]:                                               # attacked, or watched someone be attacked, today or on an earlier day
         for x in dd.get("saves", []):
             culprit = face_of(g, dd, x["hour"], x["killer"], me)
@@ -967,7 +1298,9 @@ def my_day(g, p, d):
             continue
         a = hr["acts"].get(p["pid"], {})
         dark = is_dark(hr, room)
-        others = [q for q, r in hr["where"].items() if r == room and q != p["pid"]]
+        found = {c["who"] for c in hr.get("catches", [])}
+        others = [q for q, r in hr["where"].items() if r == room and q != p["pid"]
+                  and not (q in (hr.get("hidden") or {}) and hr["hidden"][q]["since"] < i and q not in found)]   # tucked away before you came in
         seen_as = lambda q: face_of(g, d, i, q, p)
         saw = ([f"{len(others)} {'person' if len(others) == 1 else 'people'} in the dark"] if others else []) if dark else [name_of(g, seen_as(q)) for q in others]
         looked = a.get("act") == "look"                               # only someone looking around catches a quiet hand
@@ -1034,7 +1367,18 @@ def my_day(g, p, d):
             ev.append(f"🛡️ You shadowed {name_of(g, sh['target'])} all hour.")
         if d["found"] and d["found"]["hour"] == i and p["pid"] in d["found"]["by"] and not (k and p["pid"] in k.get("witnesses", []) + k.get("heard", [])):
             ev.append(f"You found {name_of(g, k['victim'])}'s body!")
-        out.append({"hour": HOURS[i], "i": i, "room": room, "act": a.get("act", ""), "saw": saw, "events": ev, "items": items, "strikes": strikes, "dark": dark,
+        for q in (hr.get("passed") or {}).get(p["pid"], []):
+            ev.insert(0, f"On your way you passed {name_of(g, seen_as(q))} in the doorway, coming the other way.")
+        for c in hr.get("catches", []):
+            if c["who"] == p["pid"]:
+                ev.append(f"😱 {name_of(g, c['by'])} found you {spot_text(c['spot'])}! You've joined the hunt.")
+            elif c["by"] == p["pid"]:
+                ev.append(f"🎯 You found {name_of(g, c['who'])} {spot_text(c['spot'])}!")
+            elif c["room"] == room:
+                ev.append(f"👀 {name_of(g, c['by'])} found {name_of(g, c['who'])} {spot_text(c['spot'])}.")
+        if hiding(g) and p["pid"] in (hr.get("hidden") or {}) and p["pid"] not in found:
+            ev.append(f"🫥 You stayed hidden {spot_text(hr['hidden'][p['pid']]['spot'])}.")
+        out.append({"hour": hours_of(g)[i], "i": i, "room": room, "act": a.get("act", ""), "saw": saw, "events": ev, "items": items, "strikes": strikes, "dark": dark,
                     "idle": bool(a.get("idle")) or p["pid"] in hr.get("idle", [])})
     return out
 
@@ -1060,6 +1404,16 @@ def board(g, p, d):
                 flags.append({"i": i, "kind": "lie", "text": f"Says the {ROOM[room]['name']} at {HOURS[i]}: you were there, and they weren't."})
             elif q["pid"] in seen and said != room:
                 flags.append({"i": i, "kind": "lie", "text": f"Says the {ROOM[said]['name']} at {HOURS[i]}: you saw them in the {ROOM[room]['name']}."})
+        for i in range(len(d["hours"])):
+            said, before = claim.get(str(i)), claim.get(str(i - 1), START_ROOM if i == 0 else None)
+            if said in ROOM and before in ROOM and said != before and said not in neighbours(before):
+                flags.append({"i": i, "kind": "lie", "text": f"Says the {ROOM[said]['name']} at {HOURS[i]}, but nobody can walk there from the "
+                              f"{ROOM[before]['name']} in an hour… unless they know a secret passage."})
+        for i, hr in enumerate(d["hours"]):                            # you passed them in a doorway: you know where they were heading
+            if q["pid"] in (hr.get("passed") or {}).get(p["pid"], []):
+                went = hr["where"].get(q["pid"])
+                if claim.get(str(i)) not in (None, went) and went in ROOM:
+                    flags.append({"i": i, "kind": "lie", "text": f"Says the {ROOM[claim[str(i)]]['name']} at {HOURS[i]}: you passed them in the doorway, heading into the {ROOM[went]['name']}."})
         for t in g.get("trails", []):
             if t["by"] == p["pid"] and t["target"] == q["pid"] and t["day"] == d["n"] and claim.get(str(t["hour"])) not in (None, t["room"]):
                 flags.append({"i": t["hour"], "kind": "lie", "text": f"Says the {ROOM[claim[str(t['hour'])]]['name']} at {HOURS[t['hour']]}: their footprints went to the {ROOM[t['room']]['name']}."})
@@ -1156,6 +1510,8 @@ def my_stats(g, p):
     killer = p["role"] == "killer"
     jester = bool(g.get("jester") and g["jester"]["pid"] == pid)
     won = jester or (not (p.get("job") == "jester") and (g["winner"] == "killers") == killer)
+    if hiding(g):                                                      # hide and seek: the hiders who made it to dawn, or the hunt if nobody did
+        won = (g["winner"] == "hiders" and p["role"] == "hider") or (g["winner"] == "hunters" and p["role"] == "hunter")
     right = sum(1 for d in g["days"] for v, t in d["votes"].items() if v == pid and player(g, t) and player(g, t)["role"] == "killer")
     caught = any(d.get("ejected") and player(g, d["ejected"])["role"] == "killer" and d["votes"].get(pid) == d["ejected"] for d in g["days"])
     hours = [(d, hr) for d in g["days"] for hr in d["hours"]]
@@ -1166,10 +1522,11 @@ def my_stats(g, p):
             "votesAgainst": sum(1 for d in g["days"] for t in d["votes"].values() if t == pid), "rightVotes": right, "caught": caught,
             "mission": bool(m.get("done")), "awards": [a["title"] for a in awards(g) if p["name"] in a["name"].split(", ")],
             "saves": sum(1 for d in g["days"] for x in d.get("saves", []) if x.get("guard") == pid or (x.get("by") != "bodyguard" and d.get("guard", {}).get(pid) == x["victim"])),
-            "found": sum(1 for f in g.get("findings", []) if f["by"] == pid and f["killer"]),
             "looks": sum(1 for _, hr in hours if hr["acts"].get(pid, {}).get("act") == "look"),
             "haunts": sum(1 for d in g["days"] for lst in d["roomchat"].values() for x in lst if x.get("haunt") and x["pid"] == pid),
-            "days": len(g["days"]), "players": len(g["players"]), "humans": len(humans(g)),
+            "days": len(g["days"]), "players": len(g["players"]), "humans": len(humans(g)), "mode": g.get("mode", "murder"),
+            "catches": sum(1 for d in g["days"] for c in d.get("catches", []) if c["by"] == pid),
+            "seeker": p["role"] == "hunter" and not p.get("caught"), "found": sum(1 for f in g.get("findings", []) if f["by"] == pid and f["killer"]),
             "minutes": round((now() - g.get("started", now())) / 60, 1)}
 
 
@@ -1188,8 +1545,10 @@ def view(g, p):
             e["mission"] = mission(g, q)
         if over:
             e["job"] = q.get("job")
-        if over or q["pid"] == p["pid"] or (killer and q["role"] == "killer") or q.get("ejected") or dead:
-            e["role"] = q["role"]
+        if over or q["pid"] == p["pid"] or (killer and q["role"] == "killer") or q.get("ejected") or dead or hiding(g):
+            e["role"] = q["role"]                                      # in hide and seek everyone knows who's seeking
+        if hiding(g):
+            e["caught"] = bool(q.get("caught"))
         if d and g["phase"] in ("talk", "vote", "result"):
             e["claimed"] = q["pid"] in d["claims"]
             e["voted"] = q["pid"] in d["votes"]
@@ -1198,8 +1557,10 @@ def view(g, p):
     v = {"code": g["code"], "public": g["public"], "v": g["v"], "now": now(), "phase": g["phase"], "deadline": g["deadline"], "start_at": g["start_at"], "span": g.get("span"),
          "practice": bool(g.get("practice")), "listed": bool(g.get("listed")),
          "day": g["day"], "hour": g["hour"], "roleInfo": {j: list(x) for j, x in JOBS.items()}, "rolesOn": list(g.get("roles", JOBS)), "pace": g.get("pace", "normal"),
-         "cast": {"killers": sum(q.get("role") == "killer" for q in g["players"]), "jobs": [j for j in JOBS if any(q.get("job") == j for q in g["players"])]}
-         if g["phase"] != "lobby" else None, "hours": HOURS, "rooms": rooms_of(g), "showdown": bool(today(g) and today(g).get("showdown")), "players": pub, "winner": g["winner"], "prologue": PROLOGUE, "map": {k: MAPS[CURRENT["id"]].get(k) for k in MAP_KEYS},
+         "mode": g.get("mode", "murder"),
+         "cast": {"killers": sum(q.get("role") == "killer" for q in g["players"]), "jobs": [j for j in JOBS if any(q.get("job") == j for q in g["players"])],
+                  "hunters": sum(q.get("role") == "hunter" for q in g["players"])}
+         if g["phase"] != "lobby" else None, "hours": hours_of(g), "rooms": rooms_of(g), "showdown": bool(today(g) and today(g).get("showdown")), "players": pub, "winner": g["winner"], "prologue": PROLOGUE, "map": {k: MAPS[CURRENT["id"]].get(k) for k in MAP_KEYS},
          "me": {"pid": p["pid"], "name": p["name"], "role": p["role"], "alive": p["alive"], "host": p["pid"] == g["host"], "carrying": g["carry"].get(p["pid"]),
                 "ejected": p.get("ejected", False), "char": p.get("char"), "voice": p.get("voice", False), "searched": p.get("searched", False),
                 "noted": p.get("noted", False), "mission": mission(g, p) if g["phase"] != "lobby" else None,
@@ -1251,13 +1612,26 @@ def view(g, p):
             s = (d.get("shadows") or {}).get(p["pid"])
             v["shadowing"] = {"name": name_of(g, s["target"]), "hour": HOURS[s["hour"]], "now": s["hour"] == g["hour"] and g["phase"] in ("move", "room")} if s else None
             v["canShadow"] = p["alive"] and g["phase"] == "move" and not s
-        v["canBell"] = p["alive"] and not p.get("belled") and g["phase"] == "move" and g["hour"] > 0 and not d["showdown"]
+        v["canBell"] = p["alive"] and not p.get("belled") and g["phase"] == "move" and g["hour"] > 0 and not d["showdown"] and not hiding(g)
         if g["phase"] in ("body", "quiet", "talk", "vote", "result", "over"):
             v["saves"] = [{"victim": name_of(g, x["victim"]), "room": ROOM[x["room"]]["name"], "hour": HOURS[x["hour"]]} for x in d.get("saves", [])]
         if g["phase"] == "move":
             v["moved"] = d["moves"].get(p["pid"])
-            if killer and p["alive"]:
+            if killer and p["alive"] and not hiding(g):
                 v["canCut"] = can_cut(g)
+        if g["phase"] in ("move", "room") and p["alive"]:
+            v["at"] = came_from(g, p)
+            if g["phase"] == "move":
+                v["reach"] = reach(g, p)
+                v["next"] = next_door(g, p, v["at"], {q["pid"]: came_from(g, q) for q in living(g)})
+            elif d.get("cur") and p["pid"] in d["cur"]["where"]:
+                v["next"] = next_door(g, p, d["cur"]["where"][p["pid"]], d["cur"]["where"])
+        if hiding(g):
+            x = d.get("hidden", {}).get(p["pid"])
+            v["hide"] = {"spot": x["spot"] if x else None, "still": bool(x and x["since"] < g["hour"]), "spots": SPOTS, "searches": SEEKER_SEARCHES,
+                         "cramp": bool(x and g["hour"] - x["since"] >= CRAMP), "steps": SEEKER_STEPS,
+                         "hunters": sum(q["role"] == "hunter" for q in g["players"]), "hiders": sum(q["role"] == "hider" for q in g["players"]),
+                         "counting": p["role"] == "hunter" and g["hour"] == 0 and g["phase"] == "move" and not p.get("caught")}
         if g["phase"] in ("move", "room") and dead and (g["phase"] == "move" or d["cur"]):   # the dead see the whole house, and can rattle it once an hour
             v["house"] = spectate(g, d)
             v["haunted"] = d.get("haunts", {}).get(p["pid"]) == g["hour"]
@@ -1267,10 +1641,12 @@ def view(g, p):
             room = d["cur"]["where"].get(p["pid"])
             if room:
                 dark = is_dark(beat(g), room)
-                others = [q for q in occupants(g, room) if q != p["pid"]]
-                v["here"] = {"room": room, "dark": dark, "count": len(others),
+                tucked = [q for q in occupants(g, room) if q != p["pid"] and prehidden(g, d, q)]
+                others = [q for q in occupants(g, room) if q != p["pid"] and q not in tucked]
+                v["here"] = {"room": room, "dark": dark, "count": len(others), "breathing": bool(tucked),
                              "people": [] if dark else [{"pid": f, "name": name_of(g, f), "color": player(g, f)["color"], "bot": player(g, f)["bot"],
-                                                         "char": player(g, f)["char"]["title"]} for f in (face_of(g, d, g["hour"], q, p) for q in others)],
+                                                         "char": player(g, f)["char"]["title"], "role": player(g, f)["role"] if hiding(g) else None,
+                                                         "hiding": hiding(g) and f in d.get("hidden", {})} for f in (face_of(g, d, g["hour"], q, p) for q in others)],
                              "items": [i for i in ROOM[room]["items"] if g["items"].get(i) == room],
                              "gone": [i for i in ROOM[room]["items"] if g["items"].get(i) != room]}
                 v["leaving"] = p["pid"] in d.get("leaving", ())
@@ -1290,17 +1666,21 @@ def view(g, p):
                              "autopsy": k["weapon"] if p.get("job") == "doctor" else None,
                              "clue": ", ".join(color_name(g, q) for q in k["clue"][:-1]) + " and " + color_name(g, k["clue"][-1]) if k.get("clue") else None}
             v["missing"] = [{"item": i, "room": ROOM[HOME[i]]["name"]} for i in d["missing"]]
-            v["beats"] = [{"hour": HOURS[i], "text": b["text"]} for i, b in enumerate(d["beats"][:len(d["hours"])])]
+            v["beats"] = [{"hour": hours_of(g)[i], "text": b["text"]} for i, b in enumerate(d["beats"][:len(d["hours"])])]
         if g["phase"] in ("result", "over") and "tally" in d:
             v["tally"] = {("skip" if k == "skip" else name_of(g, k)): n for k, n in d["tally"].items()}
             ej = d.get("ejected")
             v["ejected"] = {"name": name_of(g, ej), "role": player(g, ej)["role"], "color": player(g, ej)["color"], "char": player(g, ej)["char"]["title"],
                             "jester": player(g, ej).get("job") == "jester"} if ej else None
             v["ballots"] = [{"from": name_of(g, q), "to": "Skip" if t == "skip" else name_of(g, t)} for q, t in d["votes"].items() if player(g, q)]
+    v["plan"] = plan_view(g, p, over)
     if over:
         v["truth"] = truth(g)
         v["awards"] = awards(g)
-        v["highlights"] = highlights(g)
+        v["highlights"] = hide_highlights(g) if hiding(g) else highlights(g)
+        if hiding(g):
+            v["catches"] = [{"by": name_of(g, c["by"]), "who": name_of(g, c["who"]), "room": ROOM[c["room"]]["name"], "spot": spot_text(c["spot"]), "hour": NIGHT[c["hour"]]}
+                            for c in (today(g) or {}).get("catches", [])]
         v["mystats"] = my_stats(g, p)
         v["jesterWon"] = name_of(g, g["jester"]["pid"]) if g.get("jester") else None
     return v
@@ -1380,7 +1760,7 @@ def awards(g):
 def truth(g):
     out = []
     for d in g["days"]:
-        grid = [{"hour": HOURS[i], "rows": [{"name": name_of(g, q), "room": ROOM[r]["name"],
+        grid = [{"hour": hours_of(g)[i], "rows": [{"name": name_of(g, q), "room": ROOM[r]["name"],
                                              "did": "; ".join(e["text"] for e in hr["events"][r] if e["pid"] == q)} for q, r in hr["where"].items()]}
                 for i, hr in enumerate(d["hours"])]
         kills = d.get("kills") or ([d["kill"]] if d["kill"] else [])
@@ -1419,12 +1799,12 @@ def tick(g):
     if g["phase"] == "move":
         waiting = [p for p in humans(g, alive_only=True) if p["pid"] not in d["moves"]]
         if t >= g["deadline"] or not waiting:
-            resolve_move(g)
+            resolve_hide_move(g) if hiding(g) else resolve_move(g)
         return
     if g["phase"] == "room":                                           # you stay until you choose to leave, or the minute is up
         waiting = [p for p in humans(g, alive_only=True) if p["pid"] not in d.get("leaving", ())]
         if t >= g["deadline"] or not waiting:
-            resolve_room(g)
+            resolve_hide_room(g) if hiding(g) else resolve_room(g)
         return
     if g["phase"] == "talk":
         for plan in [x for x in d["bot_plan"] if x["at"] <= t and not x.get("done")]:
@@ -1452,7 +1832,7 @@ def tick(g):
         return
     if g["deadline"] is not None and t >= g["deadline"]:
         if g["phase"] == "roles":
-            new_day(g)
+            new_night(g) if hiding(g) else new_day(g)
         elif g["phase"] in ("body", "quiet"):
             begin_talk(g)
         elif g["phase"] == "result":
@@ -1480,10 +1860,12 @@ def claim_for(g, p):
                 continue
             seen_by = lambda room: [q for q, r in hr["where"].items() if r == room and q != p["pid"] and player(g, q)["alive"]]
             others = [r for r in room_ids(g) if r != claim[str(i)]]
-            empty = [r for r in others if not seen_by(r)]
-            if random.random() < BOT_LIAR_SKILL:                       # a careful liar: only lies nobody can catch
+            prev = claim.get(str(i - 1), START_ROOM)                   # a story has to be walkable: one door an hour
+            walkable = [r for r in [prev] + sorted(neighbours(prev)) if r in others]
+            empty = [r for r in walkable if not seen_by(r)]
+            if random.random() < BOT_LIAR_SKILL:                       # a careful liar: only lies nobody can catch, and stays put if it can
                 if empty and not seen_by(claim[str(i)]):
-                    claim[str(i)] = random.choice(empty)
+                    claim[str(i)] = empty[0]
             elif k_hour(mine, i):                                      # a clumsy one: just says it was somewhere else
                 claim[str(i)] = random.choice(others)
     elif p.get("job") == "jester" and claim and random.random() < 0.6:  # the Jester fibs on purpose: a lie someone can catch
@@ -1781,6 +2163,10 @@ def bot_room_reply(g, pid, key):
         d = today(g)
         if g["phase"] != "room" or not p or not p["alive"]:
             return typing_done(g, pid)
+        if hiding(g):                                                  # hide and seek: a whisper, no AI and nothing about murders
+            room_say(g, p, random.choice(["Shh! You'll give us away.", "Find your own hiding place!", "Did you hear that?", "Is that them on the stairs?"]
+                                         if p["role"] == "hider" else ["Ready or not, here I come…", "I can hear you breathing.", "Nobody here? Hmm.", "Found you… almost."]))
+            return typing_done(g, pid)
         log_ = "\n".join(f"{m['name']}: {m['text']}" for m in d["roomchat"].get(key, [])[-8:])
         who_ = ", ".join(f"{name_of(g, q)} ({player(g, q)['char']['title']})" for q in occupants(g, d["cur"]["where"][pid]) if q != pid)
         prompt = (f"{bot_brief(g, p)}\nIt's {HOURS[g['hour']]}, you're in the {ROOM[d['cur']['where'][pid]]['name']} with {who_}. The conversation here:\n{log_}\n"
@@ -1802,6 +2188,10 @@ def bot_dm_reply(g, pid, to, plan=None):
         p, other = player(g, pid), player(g, to)
         if not p or not other or p["alive"] != other["alive"]:
             return typing_done(g, pid)
+        if hiding(g):
+            dm(g, p, to, random.choice(["Where are you hiding?", "Shh, I'm in a good spot.", "Watch out, they're close!", "Don't tell anyone where I am."] if p["role"] == "hider"
+                                       else ["I'll find you.", "Getting warmer…", "Nice try.", "Counting… ninety-nine, a hundred!"]))
+            return
         thread = [m for m in g["dms"] if {m["from"], m["to"]} == {pid, to}][-10:]
         log_ = "\n".join(f"{name_of(g, m['from'])}: {m['text']}" for m in thread)
         brief = bot_brief(g, p) if p["alive"] else ghost_brief(g, p)
@@ -1993,7 +2383,7 @@ def play():
     name, mode = _clean_name(body.get("name")), body.get("mode")
     with LOCK:
         if mode == "bots":
-            g = new_game(map_id=pick_map(body.get("map")))
+            g = new_game(map_id=pick_map(body.get("map")), mode=body.get("game"))
             p = add_player(g, name)
             set_want(p, body.get("want"))
             for _ in range(max(3, min(7, int(body.get("bots") or 5)))):
@@ -2007,7 +2397,7 @@ def play():
                 add_bot(g)
             start(g)
         elif mode == "create":
-            g = new_game(map_id=pick_map(body.get("map")))
+            g = new_game(map_id=pick_map(body.get("map")), mode=body.get("game"))
             p = add_player(g, name)
             set_want(p, body.get("want"))
         elif mode == "join":
@@ -2052,7 +2442,7 @@ def lobbies():
                 continue
             m = MAPS.get(g["map"], MAPS["wrenmoor"])
             out.append({"code": g["code"], "public": g["public"], "host": host["name"], "players": len(g["players"]), "humans": len(humans(g)), "max": MAX_PLAYERS,
-                        "map": {"id": m["id"], "emoji": m["emoji"], "title": m["title"]}, "pace": g.get("pace", "normal"),
+                        "map": {"id": m["id"], "emoji": m["emoji"], "title": m["title"]}, "pace": g.get("pace", "normal"), "mode": g.get("mode", "murder"),
                         "starts": max(0, round(g["start_at"] - now())) if g.get("start_at") is not None else None})
         out.sort(key=lambda x: (not x["public"], -x["humans"]))
         return jsonify(lobbies=out[:20])
@@ -2110,6 +2500,11 @@ def act(code):
         if kind == "voice":
             p["voice"] = bool(body.get("on"))
             bump(g)
+        elif kind == "mode" and g["phase"] == "lobby" and p["pid"] == g["host"] and not g["public"]:
+            if body.get("mode") not in MODES:
+                return _err("Pick a way to play.")
+            g["mode"] = body["mode"]
+            bump(g)
         elif kind == "map" and g["phase"] == "lobby" and p["pid"] == g["host"]:
             g["map"] = pick_map(body.get("id"))
             use_map(g)
@@ -2134,6 +2529,8 @@ def act(code):
             if now() - p.get("emoted", 0) < EMOTE_GAP:
                 return _err("One at a time!", 429)
             emote(g, p, body["emoji"], ctx)
+            if hiding(g) and d and d.get("hidden", {}).pop(p["pid"], None):
+                d["acts"].pop(p["pid"], None)
             if ctx.startswith("room:") or ctx == "lobby":               # a bot nearby sometimes answers in kind
                 near = [q for q in g["players"] if q["bot"] and q["alive"] and q["pid"] != p["pid"]
                         and (ctx == "lobby" or (d and d.get("cur") and d["cur"]["where"].get(q["pid"]) == d["cur"]["where"].get(p["pid"])))]
@@ -2164,6 +2561,8 @@ def act(code):
                 return _err("You've already shadowed someone today.")
             if not target or target["pid"] == p["pid"] or not target["alive"]:
                 return _err("Pick someone else who's alive.")
+            if came_from(g, target) != came_from(g, p):
+                return _err("You can only shadow someone who's in the same room as you.")
             d["shadows"][p["pid"]] = {"target": target["pid"], "hour": g["hour"]}
             d["moves"].setdefault(p["pid"], d["moves"].get(target["pid"]) or random.choice(room_ids(g)))   # you go where they go: no room to pick
             bump(g)
@@ -2203,10 +2602,18 @@ def act(code):
             bump(g)
         elif kind == "move" and g["phase"] == "move" and p["alive"]:
             room = body.get("room")
-            b = beat(g)
-            if room not in room_ids(g) or (b["fx"] == "rain" and room == b["room"]):
-                return _err("You can't go there right now.")
+            if room not in reach(g, p):
+                return _err("That's too far: you can walk to a room next door, or stay where you are." if room in room_ids(g) else "You can't go there right now.")
             d["moves"][p["pid"]] = room
+            bump(g)
+        elif kind == "do" and g["phase"] == "room" and hiding(g):          # hide and seek: pick a hiding place, or the spot to search
+            a = {}
+            if p["role"] == "hider" and body.get("spot") in SPOTS:
+                a["spot"] = body["spot"]
+            if p["role"] == "hunter":
+                look = body.get("search") if isinstance(body.get("search"), list) else [body.get("search")]
+                a["search"] = [x for x in dict.fromkeys(look) if x in SPOTS][:SEEKER_SEARCHES]
+            d["acts"][p["pid"]] = a
             bump(g)
         elif kind == "do" and g["phase"] == "room" and p["alive"]:
             room = d["cur"]["where"][p["pid"]]
@@ -2235,7 +2642,7 @@ def act(code):
                 return _err("Pick someone else who's alive.")
             d["guard"][p["pid"]] = target["pid"]
             bump(g)
-        elif kind == "bell" and g["phase"] == "move" and p["alive"]:
+        elif kind == "bell" and g["phase"] == "move" and p["alive"] and not hiding(g):
             if p.get("belled") or d["showdown"] or g["hour"] == 0:
                 return _err("You can ring the bell once a game, from 11 AM on.")
             p["belled"] = True
@@ -2311,9 +2718,13 @@ def act(code):
             text = _s(body.get("text"), 200)
             if not text:
                 return _err("Say something.")
+            if hiding(g) and d.get("hidden", {}).pop(p["pid"], None):   # a voice from behind the curtain: you're in the open again
+                d["acts"].pop(p["pid"], None)
             key = room_say(g, p, text)
             room = d["cur"]["where"][p["pid"]]
-            bots = [q for q in occupants(g, room) if player(g, q)["bot"]]
+            bots = [q for q in occupants(g, room) if player(g, q)["bot"] and not (hiding(g) and q in d.get("hidden", {}))]   # a hidden bot keeps quiet
+            if hiding(g) and random.random() < 0.5:
+                bots = []
             named = [q for q in bots if re.search(rf"\b{re.escape(name_of(g, q).lower())}\b", text.lower())]
             busy = {q for q, x in g.get("typing", {}).items() if x["ctx"] == ("room", key) and now() - x["t"] < 12}
             free = [q for q in bots if q not in busy]

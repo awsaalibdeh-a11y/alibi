@@ -321,7 +321,8 @@ function accept(d) {
     if (before) sfx({ result: "drum", roles: "role", move: door ? null : "hour", room: door ? null : "door", body: "scream", showdown: "scream", vote: "vote",
       over: d.mystats?.won ? "win" : "lose" }[d.phase] || "tick");
     if (before && !door) {                                          // the big moments get a title across the screen
-      if (d.phase === "move" && d.hour === 0 && prevPhase !== "move") titleCard(d.showdown ? "The final showdown" : (d.map || DEFAULT_MAP).title, d.showdown ? "The last day" : `Day ${d.day}`, d.beat?.text);
+      if (d.phase === "move" && d.hour === 0 && prevPhase !== "move" && d.mode === "hide") titleCard("Hide and seek", "Ready or not…", d.beat?.text);
+      else if (d.phase === "move" && d.hour === 0 && prevPhase !== "move") titleCard(d.showdown ? "The final showdown" : (d.map || DEFAULT_MAP).title, d.showdown ? "The last day" : `Day ${d.day}`, d.beat?.text);
       else if (d.phase === "talk") titleCard(`Day ${d.day}`, "The meeting", "Share your day. Find the liar.");
       else if (d.phase === "vote") titleCard(`Day ${d.day}`, "The vote", "Who is the killer?");
     }
@@ -493,6 +494,15 @@ const DEFAULT_MAP = { id: "wrenmoor", emoji: "🏰", title: "The Wrenmoor Weeken
   leave_label: "Farewell, Wrenmoor", leave_sub: "The front doors close behind you.", theme: null };
 let MAPLIST = (() => { try { const c = JSON.parse(pref("alibi.maps") || "null"); return Array.isArray(c) && c.length ? c : [DEFAULT_MAP]; } catch { return [DEFAULT_MAP]; } })();   // remembered, so the right look is there before the list arrives
 let pickedMap = pref("alibi.map") || "wrenmoor";
+let pickedGame = pref("alibi.game") === "hide" ? "hide" : "murder";
+/** The two ways to play, on the home screen. */
+function gamePicker() {
+  const card = (id, em, title, sub) => h("button", { class: `gamecard ${id}` + (pickedGame === id ? " on" : ""), type: "button", "aria-pressed": String(pickedGame === id),
+    onClick: (e) => { pickedGame = id; prefSet("alibi.game", id); sfx("pick"); burst(e.currentTarget, 10); render(); } }, h("span", { class: "em" }, em), h("b", {}, title), h("small", {}, sub));
+  return h("div", { class: "stack tight" }, h("span", { class: "label" }, "What shall we play?"),
+    h("div", { class: "gamepick" }, card("murder", "🔪", "Murder weekend", "One of you is the killer. Walk the house, find the body, vote them out."),
+      card("hide", "🙈", "Hide and seek", "One night, one seeker. Sneak, hide, keep still. Whoever's found joins the hunt.")));
+}
 const mapById = (id) => MAPLIST.find((m) => m.id === id) || null;
 /** The map in play, or the one you've picked on the home screen. */
 const curMap = () => ({ ...DEFAULT_MAP, ...(S?.map || (pickedMap !== "random" ? mapById(pickedMap) : null) || {}) });
@@ -622,7 +632,7 @@ const missionLine = () => {
   if (!m || !ui.revealed) return null;
   return h("p", { class: "mission-line" + (m.done ? " done" : m.failed ? " failed" : "") }, "🎯 ", m.text, " · ", h("b", {}, m.done ? "✅ done" : m.prog));
 };
-const myRoleLabel = () => (S.me.job === "shapeshifter" ? "🎭 Shapeshifter" : S.me.role === "killer" ? "🔪 Killer" : S.me.jobInfo ? `${S.me.jobInfo[0]} ${S.me.jobInfo[1].replace("The ", "")}` : "🕯️ Guest");
+const myRoleLabel = () => (S.mode === "hide" ? (S.me.role === "hunter" ? "🔦 Seeker" : "🙈 Hider") : S.me.job === "shapeshifter" ? "🎭 Shapeshifter" : S.me.role === "killer" ? "🔪 Killer" : S.me.jobInfo ? `${S.me.jobInfo[0]} ${S.me.jobInfo[1].replace("The ", "")}` : "🕯️ Guest");
 const roleChip = () => h("button", { class: "tag role-chip" + (ui.revealed ? " accent" : ""), type: "button", "aria-pressed": String(ui.revealed), onClick: () => { ui.revealed = !ui.revealed; render(); } },
   ui.revealed ? `${myRoleLabel()} · ${S.me.char?.title || ""}` : "👁 My role");
 const ghostBanner = () => (!S.me.alive ? h("div", { class: "ghost stack tight" },
@@ -635,16 +645,23 @@ const voiceTip = () => (!voice.on && S.players.some((p) => p.voice && p.pid !== 
 const COACH = {
   lobby: ["👋", "Waiting for everyone", "Share the code or the link. When every person taps “I'm ready”, the game starts. Empty chairs get bots."],
   roles: ["🤫", "Your secret", "Cover your screen and flip the card. Most guests are innocent; one (or two) of you is the killer. Some guests have a special job too."],
-  move: ["🚪", "Pick a room", "Everyone chooses secretly. You'll only know what happens in the room you're in, so think about who you want to keep an eye on."],
-  room: ["🔍", "In the room", "See who's here, chat, then pick what to do. Look around to see who was here last hour, or take something. Leave when you're done."],
+  move: ["🚪", "Walk the house", "Tap your room to stay, or a room next door to walk there (one door an hour). Everyone chooses secretly; you see who you pass in the doorways."],
+  room: ["🔍", "In the room", "See who's here, chat, then pick what to do. Look around to see who was here last hour, or take something. The voices next door tell you where people are. Leave when you're done."],
   body: ["💀", "A body!", "Read where and how they died, and what's missing from the house. Then think back over your own day."],
   talk: ["🗣️", "The meeting", "Tap “Share my day” so everyone can check stories. The Board tab marks any claim that clashes with what you saw: that's your liar."],
   vote: ["🗳️", "Vote", "Pick the person you think is the killer. It takes most votes, and at least half the room, to throw someone out."],
   result: ["📜", "The verdict", "If they were the killer, the guests win. If not, the killer is still out there, and tomorrow is another day."],
   over: ["🏁", "The end", "Everyone's role is revealed. Watch the replay to see what really happened, hour by hour."],
 };
+const COACH_HIDE = {
+  lobby: COACH.lobby,
+  roles: ["🙈", "Hide and seek", "One of you seeks (two in a big game), the rest hide. Whoever is found joins the seekers. Hiders win if anyone is still hidden at 5 AM."],
+  move: ["👣", "One room at a time", "Walk through a door, or stay put. Listen: hiders hear a seeker's footsteps next door, seekers hear anyone moving about. Keeping still makes no sound."],
+  room: ["🫥", "Hide!", "Hiders: pick a hiding place. A seeker in the room searches one spot; anyone in the open, or in that spot, is caught. Talking gives you away."],
+  over: COACH.over,
+};
 function coach() {
-  const c = COACH[S.phase];
+  const c = (S.mode === "hide" ? COACH_HIDE : COACH)[S.phase];
   const games = window.AlibiProfile ? AlibiProfile.load().games : 0;
   if (!c || ui.coachOff[S.phase] || !(S.practice || (prefs.tips && games < 3))) return null;
   return h("div", { class: "coach", role: "note" }, h("span", { class: "e" }, c[0]), h("b", {}, c[1]), h("p", {}, c[2]),
@@ -659,7 +676,7 @@ function lobbyRows() {
     const fresh = !seenLobbies.has(x.code);
     seenLobbies.add(x.code);
     return h("div", { class: "lobbyrow" + (fresh ? " fresh" : "") }, h("span", { class: "em" }, x.map.emoji),
-      h("span", { class: "grow" }, h("b", {}, x.public ? "Public game" : `${x.host}'s game`), h("small", {}, `${x.map.title} · ${x.players}/${x.max} · ${x.humans} ${x.humans === 1 ? "person" : "people"}`, x.starts != null ? ` · starts in ${x.starts}s` : "")),
+      h("span", { class: "grow" }, h("b", {}, x.public ? "Public game" : `${x.host}'s game`, x.mode === "hide" ? " · 🙈 hide and seek" : ""), h("small", {}, `${x.map.title} · ${x.players}/${x.max} · ${x.humans} ${x.humans === 1 ? "person" : "people"}`, x.starts != null ? ` · starts in ${x.starts}s` : "")),
       h("button", { class: "btn sm primary", type: "button", onClick: () => homeGo && homeGo("join", { code: x.code }) }, "Join"));
   });
 }
@@ -695,7 +712,7 @@ function home() {
     if (!n) { name.focus(); toast("Type your name first."); return; }
     prefSet("alibi.name", n);
     try {
-      const d = await post("/api/play", { name: n, mode, ...(["create", "bots", "practice"].includes(mode) ? { map: pickedMap } : {}), ...extra });
+      const d = await post("/api/play", { name: n, mode, ...(["create", "bots", "practice"].includes(mode) ? { map: pickedMap, game: pickedGame } : {}), ...extra });
       me = { code: d.code, pid: d.pid, token: d.token };
       if (mode === "create" && window.AlibiFamily && window.AlibiFamily.pending()) window.AlibiFamily.announce(d.code);   // Homebase: tell the family chat the code
       saveMe();
@@ -722,6 +739,7 @@ function home() {
     fam ? h("div", { class: "card invite" }, h("b", {}, `🏠 A game for ${fam.f || "your family"}`), h("p", { class: "muted small" }, "Check your name, then start. Your family is told the code in the Homebase chat, with a Join button."), h("button", { class: "btn primary block", type: "button", onClick: () => go("create") }, "Start the family game")) : null,
     joinCode ? h("div", { class: "card invite" }, h("b", {}, `You're invited to game ${joinCode}.`), h("p", { class: "muted small" }, "Type your name and tap Join.")) : null,
     h("label", { class: "field" }, h("span", {}, "Your name"), name), perk,
+    gamePicker(),
     mapPicker(),
     h("div", { class: "modes" },
       mode("primary", "👨‍👩‍👧", "Start a game", "For family or friends: everyone joins on their own phone with a code", () => go("create")),
@@ -735,10 +753,11 @@ function home() {
     h("details", { class: "card" }, h("summary", {}, "📖 How to play"),
       h("ol", { class: "howto" },
         h("li", {}, h("span", {}, h("b", {}, "Everyone on their own phone. "), "4 to 8 guests, each with a character; bots fill empty chairs. One of you is secretly the killer (two in a big game).")),
-        h("li", {}, h("span", {}, h("b", {}, "Every hour, choose a room. "), "Then see who else came, talk to them (typing or voice), and decide what to do: look around, pick something up, put it back…")),
+        h("li", {}, h("span", {}, h("b", {}, "Every hour, walk to a room next door. "), "The house is a floor plan: you start in the middle and go one door at a time (the killer knows secret passages). See who's there, talk, look around, pick things up. You see who you pass in the doorways.")),
         h("li", {}, h("span", {}, h("b", {}, "The killer strikes "), "when they're alone with someone and already carrying a weapon. Storms and power cuts help: a dark room hides who's in it.")),
         h("li", {}, h("span", {}, h("b", {}, "Find the body, look back. "), "You only know what you saw. Everyone sees where they died, roughly when, how, and what's missing.")),
         h("li", {}, h("span", {}, h("b", {}, "Meet, whisper, vote. "), "Share your day (the killer lies), check the evidence board, message anyone privately, vote someone out. If the killers catch up, there's a final showdown: survive the day.")),
+        h("li", {}, h("span", {}, h("b", {}, "Or play hide and seek. "), "One seeker counts, everyone else hides. Sneak a room an hour, hide behind the door, under the furniture or in the shadows, and keep quiet. Found? You join the hunt.")),
         h("li", {}, h("span", {}, h("b", {}, "Level up. "), "Every game earns XP. Unlock achievements and badges, and beat the daily challenge.")))),
     rolesGuide(),
     h("p", { class: "muted small center" }, "Voice needs a microphone and works best on Wi-Fi."));
@@ -801,7 +820,12 @@ function lobby() {
     S.me.perk ? h("div", { class: "card perk" }, h("span", { class: "label" }, "✨ Aws's perk: your side"),
       h("div", { class: "opts3" }, [["killer", "🔪 Killer"], ["guest", "🕯️ Guest"], [null, "🎲 Random"]].map(([w, l]) =>
         h("button", { class: "optbtn" + ((S.me.want || null) === w ? " on" : ""), type: "button", onClick: () => act("want", { want: w }) }, l)))) : null,
-    !S.public ? h("div", { class: "card" }, h("span", { class: "label" }, "Special roles" + (S.me.host ? " · tap to switch" : "")),
+    !S.public ? h("div", { class: "card stack tight" }, h("span", { class: "label" }, "The game" + (S.me.host ? "" : " · the host decides")),
+      h("div", { class: "seg", role: "group", "aria-label": "The game" }, [["murder", "🔪 Murder weekend"], ["hide", "🙈 Hide and seek"]].map(([k, l]) =>
+        h("button", { class: (S.mode || "murder") === k ? "on" : "", type: "button", disabled: !S.me.host, "aria-pressed": String(S.mode === k), onClick: () => { sfx("pick"); act("mode", { mode: k }); } }, l))),
+      h("p", { class: "muted small" }, S.mode === "hide" ? "One night on the house map. A seeker (two in a big game) hunts the rest; whoever is found joins the hunt. Hiders win if anyone is still hidden at 5 AM."
+        : "A weekend on the house map: walk one room an hour, find the body, vote out the killer.")) : null,
+    !S.public && S.mode !== "hide" ? h("div", { class: "card" }, h("span", { class: "label" }, "Special roles" + (S.me.host ? " · tap to switch" : "")),
       h("div", { class: "rolechips" }, Object.entries(S.roleInfo || {}).map(([j, [e, t]]) => {
         const on = (S.rolesOn || []).includes(j);
         return h("button", { class: "rolechip" + (on ? " on" : ""), type: "button", disabled: !S.me.host, "aria-pressed": String(on), title: S.roleInfo[j][2], onClick: () => { sfx("click"); act("roles", { role: j, on: !on }); } },
@@ -825,6 +849,20 @@ async function leave() {
 }
 
 /* ---------- your character and your secret ---------- */
+function hideRoleCard() {
+  const seek = S.me.role === "hunter";
+  const others = S.players.filter((p) => p.role === "hunter" && p.pid !== S.me.pid);
+  const flip = () => { ui.revealed = true; ui.justFlipped = true; sfx("reveal"); buzz([40]); render(); setTimeout(() => { burst(document.querySelector(".rolecard .role-emoji"), 18); ui.justFlipped = false; }, 650); };
+  return h("div", { class: "flipcard" + (ui.revealed ? " flipped" : "") + (ui.justFlipped ? " justflipped" : "") }, h("div", { class: "inner" },
+    h("button", { class: "cardback", type: "button", onClick: flip, "aria-label": "Turn over your card", inert: ui.revealed }, h("span", { class: "seal" }, "🙈"), h("b", {}, "Seeker or hider?"), h("small", {}, "Tap to turn the card over")),
+    h("div", { class: "back rolecard " + (seek ? "hunter" : "hider"), inert: !ui.revealed },
+      h("div", { class: "role-emoji" }, seek ? "🔦" : "🙈"),
+      h("h1", { class: "who" }, seek ? "You are the seeker" : "You are hiding"),
+      h("p", {}, seek ? "Count to a hundred in the middle of the house, then hunt, one room an hour. Anyone in the open is caught; for the rest, search one hiding place. Whoever you find joins you."
+        : "Sneak through the house one room an hour. Hide behind the door, under the furniture or in the shadows: a seeker who looks in the wrong place walks right past. Keep still and quiet. Survive until 5 AM."),
+      others.length ? h("p", { class: "small" }, seek ? "Seeking with you: " : others.length > 1 ? "The seekers: " : "The seeker: ", h("b", {}, others.map((p) => p.name).join(", "))) : null,
+      h("button", { class: "btn ghost sm", type: "button", onClick: () => { ui.revealed = false; render(); } }, "Turn it back"))));
+}
 function roles() {
   const killer = S.me.role === "killer", jester = S.me.job === "jester";
   const fellow = S.players.filter((p) => p.role === "killer" && p.pid !== S.me.pid);
@@ -843,18 +881,20 @@ function roles() {
   return h("section", { class: "stack" }, bar(curMap().title), coach(),
     h("div", { class: "card prologue" }, h("span", { class: "label" }, "Prologue"), h("p", { class: "lead" }, S.prologue)),
     h("div", { class: "card charcard" }, face(who(S.me.pid), "big"), h("div", {}, h("span", { class: "label" }, "You are playing"), h("h2", { class: "h2" }, S.me.char?.title), h("p", { class: "muted" }, S.me.char?.blurb))),
-    card,
-    S.cast ? h("div", { class: "card" }, h("span", { class: "label" }, "In this game"),
+    S.mode === "hide" ? hideRoleCard() : card,
+    S.mode === "hide" ? h("div", { class: "card" }, h("span", { class: "label" }, "Tonight"), h("div", { class: "row" }, h("span", { class: "tag hunter" }, `🔦 ${S.cast?.hunters || 1} seeking`),
+      h("span", { class: "tag hider" }, `🙈 ${S.players.length - (S.cast?.hunters || 1)} hiding`), h("span", { class: "tag" }, `🕰️ ${S.hours[0]} to ${S.hours[S.hours.length - 1]}`))) : null,
+    S.cast && S.mode !== "hide" ? h("div", { class: "card" }, h("span", { class: "label" }, "In this game"),
       h("div", { class: "row" }, h("span", { class: "tag red" }, `🔪 ${S.cast.killers} killer${S.cast.killers > 1 ? "s" : ""}`),
         S.cast.jobs.map((j) => h("span", { class: "tag accent", title: S.roleInfo[j][2] }, `${S.roleInfo[j][0]} ${S.roleInfo[j][1].replace("The ", "")}`)))) : null,
     h("div", { class: "card" }, h("span", { class: "label" }, "The guests"), h("div", { class: "plist" }, S.players.map((p) => h("div", { class: "prow" }, face(p), h("span", {}, h("b", {}, p.name), lvl(p), h("br"), h("small", { class: "muted" }, p.char?.title || "")), h("span", { class: "spacer" }), swatch(p))))),
-    h("p", { class: "muted small center" }, "The day begins in ", timer(S.deadline)));
+    h("p", { class: "muted small center" }, S.mode === "hide" ? "The lights go out in " : "The day begins in ", timer(S.deadline)));
 }
 
 /* ---------- each hour, step 1: where do you go? ---------- */
 function dayHeader() {
   return h("div", { class: "dayhead" },
-    h("div", { class: "meta" }, h("span", { class: "tag accent" }, S.showdown ? "⚔️ Showdown" : `Day ${S.day}`), h("span", { class: "spacer" }), timer(S.deadline), roleChip()),
+    h("div", { class: "meta" }, h("span", { class: "tag accent" }, S.mode === "hide" ? "🌙 The night" : S.showdown ? "⚔️ Showdown" : `Day ${S.day}`), h("span", { class: "spacer" }), timer(S.deadline), roleChip()),
     h("div", { class: "hourtrack", "aria-label": `${S.hours[S.hour]}, hour ${S.hour + 1} of ${S.hours.length}` }, S.hours.map((hr, i) => h("span", { class: "h" + (i < S.hour ? " done" : i === S.hour ? " now" : "") }, h("i"), hr))),
     S.beat ? h("p", { class: "beat" + (S.beat.fx ? " storm" : "") }, h("span", { class: "e" }, S.beat.fx === "dark" ? "🕯️" : S.beat.fx === "rain" ? "🌧️" : "📜"), h("span", {}, S.beat.text)) : null,
     S.me.carrying ? h("p", { class: "carry" }, h("span", {}, itemIcon(S.me.carrying)), h("span", {}, "You're carrying the ", h("b", {}, S.me.carrying), ".")) : null,
@@ -870,27 +910,146 @@ function lastHour() {
       x.kind === "take" ? ` ${x.sneak ? "quietly " : ""}took the ${x.item}` : ` put back the ${x.item}`, x.sneak && x.who !== "You" ? " 👀" : ""))) : null,
     last.events.filter((e) => !/ (quietly )?took the | put the .+ back\./.test(e)).map((e) => h("p", { class: "small ev" }, e)));
 }
+/* ---------- the house on one screen: rooms where they sit, the doors between them, the killer's passages dashed ---------- */
+const FLOORS = [[3, 0, "⬆ Upstairs"], [0, 2, "Ground floor"], [0, 3, "⬇ Below"], [1, 3, ""], [3, 3, ""]];
+/** cell(id) may return { cls, onClick, tag: [text, cls], dots: [{ name, color, cls }], label } for each room. */
+function floorPlan({ cell = () => ({}), compact = false, label = "Floor plan of the house" } = {}) {
+  const P = S?.plan;
+  if (!P) return null;
+  const pos = Object.fromEntries(P.cells.map((c) => [c.id, c]));
+  const cx = (c) => (c.col + 0.5) * 25, cy = (c) => (c.row + c.span / 2) * 25;
+  const near = new Set(S.reach || []);
+  const line = ([a, b], cls) => (pos[a] && pos[b] ? `<line x1="${cx(pos[a])}" y1="${cy(pos[a])}" x2="${cx(pos[b])}" y2="${cy(pos[b])}" class="${cls}"/>` : "");
+  const svg = `<svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">${P.doors.map((d) => line(d, d.includes(S.at) && near.has(d[0]) && near.has(d[1]) ? "open" : "")).join("")}`
+    + `${P.secrets.map((d) => line(d, "secret")).join("")}</svg>`;
+  const taken = new Set(P.cells.flatMap((c) => Array.from({ length: c.span }, (_, k) => `${c.col},${c.row + k}`)));
+  return h("div", { class: "plan" + (compact ? " compact" : ""), role: "group", "aria-label": label },
+    h("span", { class: "links", html: svg }),
+    FLOORS.filter(([c, r]) => !taken.has(`${c},${r}`)).map(([c, r, t]) => h("span", { class: "floor", style: { gridColumn: String(c + 1), gridRow: String(r + 1) } }, t)),
+    P.cells.map((c) => {
+      const r = roomOf(c.id) || { emoji: "❔", name: c.id }, x = cell(c.id) || {};
+      return h(x.onClick ? "button" : "div", { class: `cell ${x.cls || ""}`, type: x.onClick ? "button" : null, onClick: x.onClick || null,
+        "aria-label": x.label || r.name, style: { gridColumn: String(c.col + 1), gridRow: `${c.row + 1} / span ${c.span}` } },
+        x.tag ? h("span", { class: `tagx ${x.tag[1] || ""}` }, x.tag[0]) : null, h("span", { class: "em" }, r.emoji), h("span", { class: "nm" }, r.name),
+        x.dots?.length ? h("span", { class: "dots" }, x.dots.map((d) => h("span", { class: `dot ${d.cls || ""}`, style: { "--c": d.color || "#8a8a95" }, title: d.name }, d.name[0]))) : null);
+    }));
+}
+const planHint = () => h("div", { class: "planhint" }, h("span", {}, h("i"), "a door you can take"), (S.plan?.secrets || []).length ? h("span", {}, h("i", { class: "s" }, ""), "a secret passage (only you know)") : null);
+/** What you hear through the doors: voices, footsteps, someone moving about. */
+function hearing() {
+  const out = {};
+  for (const x of S.next || []) {
+    if (x.hunter) out[x.room] = ["👣", "warn", `Heavy footsteps in the ${roomName(x.room)}: a seeker!`];
+    else if (x.count) out[x.room] = [S.mode === "hide" ? `🔊${x.count}` : `🗣️${x.count}`, "noise", S.mode === "hide" ? `Someone moving about in the ${roomName(x.room)}` : `Voices in the ${roomName(x.room)} (${x.count})`];
+  }
+  return out;
+}
+const hearingLine = () => { const x = Object.values(hearing()); return x.length ? h("div", { class: "nextdoor", "aria-label": "Next door" }, x.map(([, cls, t]) => h("span", { class: cls }, t))) : null; };
+/** Pick where to be this hour, on the plan: where you are, or a room next door. */
+function walkPlan() {
+  const near = new Set(S.reach || []), heard = hearing();
+  const doors = new Set((S.plan?.doors || []).filter((d) => d.includes(S.at)).flat());
+  const locked = S.beat?.fx === "rain" ? S.beat.room : null, darkRoom = S.beat?.fx === "dark" ? S.beat.room : null;
+  const go = (id, e) => { ui.changing = false; sfx("pick"); burst(e.currentTarget, 10); act("move", { room: id }); };
+  return floorPlan({ label: "Where will you go? Tap your room or one next door.", cell: (id) => ({
+    cls: [S.moved === id ? "picked" : id === S.at ? "here" : near.has(id) ? "can" : "far", near.has(id) && id !== S.at && !doors.has(id) ? "via" : "", id === darkRoom ? "dark" : "", id === locked ? "locked" : ""].join(" "),
+    onClick: near.has(id) ? (e) => go(id, e) : null, tag: heard[id] || (id === locked ? ["🌧️", ""] : id === darkRoom ? ["🕯️", ""] : null),
+    label: `${roomName(id)}${id === S.at ? " (you are here: stay)" : near.has(id) ? "" : " (too far this hour)"}${heard[id] ? `. ${heard[id][2]}` : ""}` }) });
+}
 function move() {
+  if (S.mode === "hide") return hideMove();
   if (!S.me.alive) return h("section", { class: "stack" }, bar(`Day ${S.day}`), ghostBanner(), dayHeader(), spectateCard(), emoteBar(), ghostChat());
-  const locked = S.beat?.fx === "rain" ? S.beat.room : null;
-  const darkRoom = S.beat?.fx === "dark" ? S.beat.room : null;
-  const moved = S.moved;
-  if (moved && !ui.changing) {
-    const r = roomOf(moved);
+  const here = roomOf(S.at);
+  if (S.moved && !ui.changing) {
+    const r = roomOf(S.moved);
     return h("section", { class: "stack" }, bar(S.showdown ? "The last day" : `Day ${S.day}`), dayHeader(),
-      h("div", { class: "card heading" }, h("span", { class: "big-emoji" }, r.emoji), h("b", { class: "h3" }, S.shadowing?.now ? `Shadowing ${S.shadowing.name}…` : `Heading to the ${r.name}…`),
+      h("div", { class: "card heading" }, h("span", { class: "big-emoji" }, r.emoji), h("b", { class: "h3" }, S.shadowing?.now ? `Shadowing ${S.shadowing.name}…` : S.moved === S.at ? `Staying in the ${r.name}…` : `Heading to the ${r.name}…`),
         h("div", { class: "steps", "aria-hidden": "true" }, h("span", {}, "👣"), h("span", {}, "👣"), h("span", {}, "👣"), h("span", {}, "👣")),
         h("p", { class: "muted small" }, "Waiting for everyone to choose."), S.shadowing?.now ? null : h("button", { class: "btn ghost sm", type: "button", onClick: () => { ui.changing = true; render(); } }, "Change my mind")),
-      abilities(), lastHour());
+      walkPlan(), abilities(), lastHour());
   }
   return h("section", { class: "stack" }, bar(S.showdown ? "The last day" : `Day ${S.day}`), dayHeader(), coach(),
     gazette(),
     S.showdown ? h("div", { class: "card warn" }, h("b", {}, "⚔️ The final showdown. "), S.me.role === "killer" ? "Catch every guest alone before dusk." : "Stay alive until dusk. Don't be caught alone with the killer.") : null,
-    h("h2", { class: "h2" }, `Where will you be at ${S.hours[S.hour]}?`),
-    h("div", { class: "rooms" }, S.rooms.map((r) => h("button", { class: "roomtile" + (r.id === darkRoom ? " dark" : ""), type: "button", disabled: r.id === locked,
-      onClick: (e) => { ui.changing = false; sfx("pick"); burst(e.currentTarget, 10); act("move", { room: r.id }); } },
-      h("span", { class: "big-emoji" }, r.emoji), h("b", {}, r.name), h("small", {}, r.id === locked ? "🌧️ Locked by the weather" : r.id === darkRoom ? "🕯️ Pitch dark this hour" : r.act)))),
+    h("div", {}, h("h2", { class: "h2" }, `Where will you be at ${S.hours[S.hour]}?`),
+      h("p", { class: "muted small" }, `You're in the ${here?.name || "hall"}. Stay, or walk through a door to a room next door.`)),
+    walkPlan(), planHint(), hearingLine(),
     abilities(), lastHour(), voiceTip());
+}
+
+/* ---------- hide and seek ---------- */
+const amHunter = () => S.me.role === "hunter";
+const SPOT_TEXT = { door: "behind the door", under: "under the furniture", shadows: "in the shadows" };
+const SPOT_EMOJI = { door: "🚪", under: "🛋️", shadows: "🌑" };
+const seekerNote = (text) => h("div", { class: "alert", style: { background: "#2a1f0e", color: "#ffe3b8", boxShadow: "inset 0 0 0 1px rgba(240,180,90,.45)" } }, text);
+function hideMove() {
+  const h0 = S.hide || {};
+  const seekers = S.players.filter((p) => p.role === "hunter"), hiders = S.players.filter((p) => p.role === "hider");
+  const head = [bar("Hide and seek"), dayHeader(), coach()];
+  const score = h("div", { class: "row" }, h("span", { class: "tag hider" }, `🙈 ${hiders.length} hiding`), h("span", { class: "tag hunter" }, `🔦 ${seekers.length} seeking`));
+  if (h0.counting) {
+    return h("section", { class: "stack" }, ...head, h("div", { class: "card counting" }, h("span", { class: "em" }, "🙈"), h("span", { class: "label" }, "You're the seeker"),
+      h("div", { class: "big" }, "…98, 99, 100!"), h("p", { class: "muted" }, "Eyes closed in the middle of the house while everyone hides. You start hunting next hour.")), score, floorPlan({ cell: (id) => ({ cls: id === S.at ? "here" : "far" }) }));
+  }
+  if (S.moved && !ui.changing) {
+    return h("section", { class: "stack" }, ...head, h("div", { class: "card heading" }, h("span", { class: "big-emoji" }, roomOf(S.moved).emoji),
+      h("b", { class: "h3" }, S.moved === S.at ? (h0.spot ? `Keeping still ${SPOT_TEXT[h0.spot] || ""}…` : `Staying in the ${roomName(S.moved)}…`) : `${amHunter() ? "Creeping" : "Tiptoeing"} into the ${roomName(S.moved)}…`),
+      h("div", { class: "steps", "aria-hidden": "true" }, h("span", {}, "👣"), h("span", {}, "👣"), h("span", {}, "👣"), h("span", {}, "👣")),
+      h("button", { class: "btn ghost sm", type: "button", onClick: () => { ui.changing = true; render(); } }, "Change my mind")), score, walkPlan());
+  }
+  return h("section", { class: "stack" }, ...head, score,
+    amHunter() ? seekerNote("🔦 You're a seeker: you can run two rooms an hour and you hear anyone moving that far away. Anyone in the open when the hour ends is caught; for the rest, search two hiding places.")
+      : h0.cramp ? h("div", { class: "alert" }, "🦵 Your legs are cramping: the seekers can hear you. Time to move.")
+      : h0.spot ? h("div", { class: "calmnote" }, `🫥 You're tucked away ${SPOT_TEXT[h0.spot]} in the ${roomName(S.at)}. Stay put to stay hidden: walking out puts you in the open.`)
+        : h("div", { class: "calmnote" }, "🙈 Sneak one room at a time. Listen for footsteps, and find somewhere to hide."),
+    h("div", {}, h("h2", { class: "h2" }, `Where to at ${S.hours[S.hour]}?`), h("p", { class: "muted small" }, `You're in the ${roomName(S.at)}.`)),
+    walkPlan(), hearingLine(), planHint());
+}
+function hideRoom() {
+  const here = S.here;
+  if (!here) return h("section", { class: "stack" }, bar("Hide and seek"), dayHeader());
+  const r = roomOf(here.room), a = S.acted || {}, h0 = S.hide || {};
+  const seekersHere = here.people.filter((p) => p.role === "hunter"), hidersHere = here.people.filter((p) => p.role !== "hunter");
+  const looks = [].concat(a.search || []), max = h0.searches || 2;
+  const chosen = amHunter() ? looks : (a.spot ?? h0.spot);
+  const isOn = (k) => (amHunter() ? looks.includes(k) : chosen === k);
+  const pickSpot = (k, e) => {
+    sfx("pick"); burst(e.currentTarget, 8);
+    if (!amHunter()) return act("do", { spot: k });
+    const next = looks.includes(k) ? looks.filter((x) => x !== k) : [...looks, k].slice(-max);
+    act("do", { search: next });
+  };
+  const spots = h("div", { class: "spots" }, Object.keys(SPOT_TEXT).map((k) => h("button", { class: "spot" + (amHunter() ? " search" : "") + (isOn(k) ? " on" : ""), type: "button", "aria-pressed": String(isOn(k)),
+    onClick: (e) => pickSpot(k, e) }, h("span", { class: "em" }, SPOT_EMOJI[k]), SPOT_TEXT[k][0].toUpperCase() + SPOT_TEXT[k].slice(1))));
+  if (amHunter() && S.hour === 0) {
+    return h("section", { class: "stack" }, bar("Hide and seek"), dayHeader(),
+      h("div", { class: "card counting" }, h("span", { class: "em" }, "🙈"), h("span", { class: "label" }, "Eyes shut"), h("div", { class: "big" }, "…57, 58, 59…"),
+        h("p", { class: "muted" }, "You hear footsteps scattering through the house. Next hour, you hunt.")),
+      hearingLine(), h("div", { class: "dock" }, S.leaving ? h("p", { class: "center muted small", style: { margin: 0 } }, "✓ Ready.") : h("button", { class: "btn primary block lg", type: "button", onClick: () => act("leave_room") }, "Ready or not ▸")));
+  }
+  const status = amHunter()
+    ? [hidersHere.length ? seekerNote(`👀 ${hidersHere.map((p) => p.name).join(", ")} ${hidersHere.length > 1 ? "are" : "is"} in here! Anyone still in the open at the end of the hour is caught. They'll dive somewhere: guess where.`) : null,
+      here.breathing ? h("p", { class: "breath" }, "…you hear someone breathing in here. Very quietly.") : !hidersHere.length ? h("p", { class: "muted small" }, "Nobody in sight. Search a spot anyway, or listen at the doors.") : null,
+      h("div", { class: "card stack tight" }, h("span", { class: "label" }, `🔦 Search ${max} hiding places this hour · ${looks.length} of ${max} picked`), spots)]
+    : [seekersHere.length ? h("div", { class: "alert" }, `😱 ${seekersHere.map((p) => p.name).join(" and ")} ${seekersHere.length > 1 ? "are" : "is"} in here with you! Hide, now, and hope they look in the wrong place.`) : null,
+      h0.cramp ? h("div", { class: "alert" }, "🦵 Your legs are cramping! Seekers can hear you now. Move somewhere new next hour.")
+        : h0.still ? h("div", { class: "calmnote" }, `🫥 Nobody saw you: you were already tucked away ${SPOT_TEXT[h0.spot]}. Keep still.`) : null,
+      here.breathing ? h("p", { class: "breath" }, "…someone else is hiding in here too.") : null,
+      h("div", { class: "card stack tight" }, h("span", { class: "label" }, chosen ? `🫥 Hiding ${SPOT_TEXT[chosen]}` : "⚠️ You're in the open! Pick a hiding place"), spots,
+        h("p", { class: "muted small", style: { margin: 0 } }, `A seeker looks in ${max} of the 3 places. Keeping still makes no sound (for ${2} hours, then your legs cramp). Talking, or reacting, gives you away.`))];
+  return h("section", { class: "stack" }, bar(`${r.emoji} ${r.name}`), dayHeader(), coach(),
+    h("div", { class: "roomhero" }, h("span", { class: "big-emoji" }, r.emoji), h("span", { class: "grow" }, h("span", { class: "label" }, `${S.hours[S.hour]} · you're in`), h("h2", { class: "h2" }, `The ${r.name}`))),
+    ...status,
+    h("div", { class: "card" }, h("span", { class: "label" }, here.people.length ? `In sight · ${here.people.length}` : "Nobody in sight"),
+      here.people.length ? h("div", { class: "people" }, here.people.map((p) => h("div", { class: "person" }, face(p), h("span", { class: "grow" }, h("b", {}, p.name, p.bot ? " 🤖" : ""),
+        h("small", {}, p.role === "hunter" ? "🔦 Seeker" : p.hiding ? "🫥 Hiding" : "🙈 Hider"))))) : h("p", { class: "muted small" }, "Just you… as far as you can tell.")),
+    hearingLine() || h("p", { class: "muted small" }, amHunter() ? "No sound from next door." : "No footsteps next door. For now."),
+    h("div", { class: "card stack tight" }, h("span", { class: "label" }, "Whisper here"),
+      h("div", { class: "chatlog small-log", "data-log": "room" }, (S.roomchat || []).map(msgEl), !(S.roomchat || []).length ? h("p", { class: "muted small center" }, amHunter() ? "Taunt them: they can read it." : "Careful: a word gives away your hiding place.") : null),
+      typingLine(S.typing?.room), composer("room", amHunter() ? "Ready or not…" : "Whisper (gives you away)…", (t) => act("room", { text: t }), "room"), emoteBar()),
+    floorPlan({ compact: true, cell: (id) => ({ cls: id === here.room ? "here" : "far", tag: hearing()[id] || null }) }),
+    h("div", { class: "dock" }, S.leaving ? h("p", { class: "center muted small", style: { margin: 0 } }, "✓ Ready. Waiting for the others, or the clock.")
+      : h("button", { class: "btn primary block lg", type: "button", onClick: () => { sfx("door"); act("leave_room"); } }, amHunter() ? (looks.length ? "Search ▸" : "Done ▸") : chosen ? "Hold your breath ▸" : "Stay in the open ▸")));
 }
 /** What your role lets you do while everyone picks a room. */
 function abilities() {
@@ -947,6 +1106,7 @@ function cutCard() {
 /* ---------- each hour, step 2: in the room ---------- */
 const ROOM_LINES = () => ["Hello! 👋", "What brings you here?", "Seen anything odd today?", "Let's stick together.", "I'm just passing through.", S.hour + 1 < S.hours.length ? `Meet me here at ${S.hours[S.hour + 1]}?` : "Nearly dusk…"];
 function room() {
+  if (S.mode === "hide") return hideRoom();
   if (!S.me.alive) return h("section", { class: "stack" }, bar(`Day ${S.day}`), ghostBanner(), dayHeader(), spectateCard(), hauntCard(), emoteBar(), ghostChat());
   const here = S.here;
   if (!here) return h("section", { class: "stack" }, bar(`Day ${S.day}`), dayHeader());
@@ -985,7 +1145,7 @@ function room() {
   const talkers = here.people.length || here.count;
   return h("section", { class: "stack" }, bar(`${r.emoji} ${r.name}`), dayHeader(), coach(),
     h("div", { class: "roomhero" + (here.dark ? " dark" : "") }, h("span", { class: "big-emoji" }, r.emoji), h("span", { class: "grow" }, h("span", { class: "label" }, here.dark ? "Pitch dark" : `${S.hours[S.hour]} · you're in`), h("h2", { class: "h2" }, `The ${r.name}`))),
-    people,
+    people, hearingLine(),
     here.gone?.length ? h("p", { class: "gone" }, "🕳️ Gone from this room: ", here.gone.map((i) => `the ${i}`).join(", "), ". Someone's taken it.") : null,
     h("div", { class: "card stack tight" }, h("span", { class: "label" }, here.dark ? "Whispers in the dark" : "Talk here"),
       h("div", { class: "chatlog small-log", "data-log": "room" }, (S.roomchat || []).map(msgEl),
@@ -1001,16 +1161,20 @@ function room() {
 function spectateCard() {
   const house = S.house || [];
   if (!house.length) return null;
+  const by = Object.fromEntries(house.map((x) => [x.room, x]));
+  const talk = house.filter((x) => x.chat?.length);
   return h("div", { class: "card stack haunt" }, h("span", { class: "label" }, S.phase === "move" ? "👻 Where they're heading" : "👻 The house, from beyond"),
-    h("div", { class: "house" }, house.map((x) => { const r = roomOf(x.room); return h("div", { class: "hroom" + (x.dark ? " dark" : "") }, h("span", { class: "hname" }, r.emoji, " ", r.name),
-      h("div", { class: "hpeople" }, x.people.map((q) => h("span", { class: "hp", title: `${q.name}${q.killer ? " (killer)" : ""}${q.carry ? `, carrying the ${q.carry}` : ""}` }, face(q, "sm"), q.killer ? h("span", { class: "knife" }, "🔪") : null, h("small", {}, q.name, q.carry ? ` · ${itemIcon(q.carry)}` : "")))),
-      !x.people.length ? h("small", { class: "muted" }, "empty") : null,
-      x.chat?.length ? h("div", { class: "hchat" }, x.chat.map((m) => h("span", {}, h("b", { style: { color: m.color } }, m.name), " ", m.text))) : null); })));
+    floorPlan({ label: "Everyone in the house", cell: (id) => ({ cls: by[id]?.dark ? "dark" : "", dots: (by[id]?.people || []).map((q) => ({ name: q.name, color: q.color, cls: q.killer ? "k" : "" })),
+      tag: (by[id]?.people || []).some((q) => q.carry) ? [itemIcon((by[id].people.find((q) => q.carry) || {}).carry), ""] : null,
+      label: `${roomName(id)}: ${(by[id]?.people || []).map((q) => q.name + (q.killer ? " (the killer)" : "") + (q.carry ? `, carrying the ${q.carry}` : "")).join(", ") || "empty"}` }) }),
+    h("p", { class: "muted small", style: { margin: 0 } }, "A red ring is a killer. ", h("span", { class: "planhint", style: { display: "inline-flex" } }, h("span", {}, h("i", { class: "s" }, ""), "secret passages"))),
+    talk.length ? h("div", { class: "hchat" }, talk.flatMap((x) => x.chat.map((m) => h("span", {}, roomOf(x.room)?.emoji, " ", h("b", { style: { color: m.color } }, m.name), " ", m.text)))) : null);
 }
 /** Once an hour a ghost can send a sign rattling through one room. */
 const HAUNTS = ["👻", "🔪", "👀", "🕯️", "❄️", "❓"];
 function hauntCard() {
   const house = (S.house || []).filter((x) => x.people.length);
+  if (S.phase !== "room") return null;
   return h("div", { class: "card stack haunt" }, h("span", { class: "label" }, "👻 Haunt a room"),
     S.haunted ? h("p", { class: "muted small center" }, "The candles still flicker where you passed. You can haunt again next hour.")
       : [h("p", { class: "muted small" }, "Rattle a room: the living in it see your sign. Point them at the truth… or just scare them."),
@@ -1366,17 +1530,43 @@ function replay() {
       h("button", { class: "ibtn", type: "button", "aria-label": "Back", onClick: () => { stop(); go(at - 1); } }, "◀"),
       h("button", { class: "ibtn", type: "button", "aria-label": replayState.timer ? "Pause" : "Play", onClick: play }, replayState.timer ? "⏸" : "▶"),
       h("button", { class: "ibtn", type: "button", "aria-label": "Forward", onClick: () => { stop(); go(at + 1); } }, "▶▶")),
-    h("div", { class: "house" }, S.rooms.map((r) => {
-      const here = st.rows.filter((x) => x.room === r.name);
-      const k = kills.find((x) => x.room === r.name);
-      return h("div", { class: "hroom" + (k ? " murder" : "") }, h("span", { class: "hname" }, r.emoji, " ", r.name),
-        h("div", { class: "hpeople" }, here.map((x) => { const p = S.players.find((q) => q.name === x.name); return h("span", { class: "hp", title: x.did || x.name }, face({ name: x.name, color: p?.color }, "sm"), p?.role === "killer" ? h("span", { class: "knife" }, "🔪") : null, h("small", {}, x.name)); })),
-        k ? h("p", { class: "small no" }, `🔪 ${k.killer} killed ${k.victim}`) : null,
-        here.filter((x) => x.did).map((x) => h("p", { class: "small muted" }, `${x.name} ${x.did}`)));
-    })),
+    floorPlan({ label: `Who was where at ${st.hour}`, cell: (id) => {
+      const name = roomName(id), here = st.rows.filter((x) => x.room === name), k = kills.find((x) => x.room === name);
+      return { cls: k ? "murder" : "", tag: k ? ["🔪", "warn"] : null, label: `${name}: ${here.map((x) => x.name).join(", ") || "empty"}`,
+        dots: here.map((x) => { const p = S.players.find((q) => q.name === x.name); return { name: x.name, color: p?.color, cls: p?.role === "killer" ? "k" : p?.role === "hunter" ? "h" : "" }; }) };
+    } }),
+    kills.map((k) => h("p", { class: "small no", style: { margin: 0 } }, `🔪 ${k.killer} killed ${k.victim} in the ${k.room}`)),
+    (S.catches || []).filter((c) => c.hour === st.hour).map((c) => h("p", { class: "small", style: { margin: 0, color: "var(--amber)" } }, `🔦 ${c.by} found ${c.who} ${c.spot} in the ${c.room}`)),
+    st.rows.filter((x) => x.did).map((x) => h("p", { class: "small muted", style: { margin: 0 } }, `${x.name} ${x.did}`)),
     h("div", { class: "scrub" }, steps.map((_, i) => h("button", { type: "button", class: i === at ? "on" : i < at ? "done" : "", "aria-label": `Step ${i + 1}`, onClick: () => { stop(); go(i); } }))));
 }
+/** Dawn: who made it, who was found where, and by whom. */
+function hideOver() {
+  const st = S.mystats || {}, iWon = !!st.won, dawn = S.winner === "hiders";
+  const stars = S.players.filter((p) => (dawn ? p.role === "hider" : p.role === "hunter" && !p.caught));
+  if (!endCard && endResult && window.AlibiProfile) endCard = AlibiProfile.resultCard(endResult);
+  const foundAt = Object.fromEntries((S.catches || []).map((c) => [c.who, c]));
+  return h("section", { class: "stack reveal" }, bar("Dawn"),
+    h("div", { class: "culprit " + (iWon ? "won" : "lost") }, h("span", { class: "bigstamp" + (dawn ? "" : " lost") }, dawn ? "DAWN" : "FOUND"),
+      h("span", { class: "label" }, dawn ? "🌅 The hiders win" : "🔦 The seekers win"),
+      h("div", { class: "row center" }, stars.map((p) => face(p, stars.length > 2 ? "big" : "xl"))),
+      h("h1", { class: "display" }, dawn ? stars.map((p) => p.name).join(" & ") : "Everyone was found"),
+      h("p", { class: "muted" }, dawn ? `Still hidden at ${S.hours[S.hours.length - 1]}.` : `${stars.map((p) => p.name).join(" & ")} found ${(S.catches || []).length} ${(S.catches || []).length === 1 ? "hider" : "hiders"} between them.`),
+      h("p", { class: "youresult" + (iWon ? " won" : "") }, iWon ? (dawn ? "You made it to dawn! 🌅" : "The hunt is over. You won! 🔦") : st.role === "hunter" && foundAt[S.me.name] ? `Found ${foundAt[S.me.name].spot} at ${foundAt[S.me.name].hour}.` : "You lost this one."),
+      recordLine() ? h("p", { class: "muted small" }, recordLine()) : null),
+    endCard,
+    S.highlights?.length ? h("div", { class: "card stack" }, h("span", { class: "label" }, "⭐ The night's big moments"), h("div", { class: "highlights" }, S.highlights.map((x) => h("div", { class: "hl" }, h("span", { class: "e" }, x.emoji), h("b", {}, x.title), h("span", {}, x.text))))) : null,
+    (S.catches || []).length ? h("div", { class: "card stack" }, h("span", { class: "label" }, "🔦 Who was found, and where"),
+      h("ol", { class: "catchlist" }, S.catches.map((c, i) => h("li", { style: { animationDelay: `${0.2 + i * 0.12}s` } }, h("span", { class: "t" }, c.hour), h("span", {}, h("b", {}, c.by), " found ", h("b", {}, c.who), ` ${c.spot} in the ${c.room}.`))))) : null,
+    h("div", { class: "card" }, h("span", { class: "label" }, "Everyone"), h("div", { class: "plist" }, S.players.map((p) => h("div", { class: "prow" }, face(p), h("span", {}, h("b", {}, p.name), lvl(p), h("br"), h("small", { class: "muted" }, p.char?.title || "")),
+      h("span", { class: "spacer" }), h("span", { class: "right" }, p.role === "hider" ? h("span", { class: "yes" }, "🌅 made it to dawn") : foundAt[p.name] ? h("span", { class: "muted" }, `🙈 found at ${foundAt[p.name].hour}`) : h("span", { style: { color: "var(--amber)" } }, "🔦 seeker")))))),
+    replay(), emoteBar(),
+    h("div", { class: "dock static" }, h("button", { class: "btn primary block lg", type: "button", onClick: () => act("again", window.AlibiProfile ? AlibiProfile.flair() : {}) }, "🔁 Play again with the same people"),
+      h("div", { class: "row nowrap" }, window.AlibiProfile ? h("button", { class: "btn block", type: "button", onClick: () => AlibiProfile.open() }, "🏅 My profile") : null,
+        h("button", { class: "btn ghost block", type: "button", onClick: leave }, "Leave"))));
+}
 function over() {
+  if (S.mode === "hide") return hideOver();
   const killers = S.players.filter((p) => p.role === "killer");
   const st = S.mystats || {};
   const iWon = st.won ?? ((S.winner === "killers") === (S.me.role === "killer"));

@@ -19,9 +19,10 @@
     ] },
     alibi: { steps: [
       S("🕵️", "Welcome to Alibi", "A murder party for your phones. A normal weekend turns into a mystery, and one of the players is the killer."),
-      S("🗺️", "Pick a place and a way to play", "Nine maps, each with its own rooms and story. Start a game for family or friends, play with bots, find a public game, or try Practice: a gentle game with tips where you're never the killer."),
+      S("🗺️", "Pick a game and a place", "Two games: the Murder weekend, or Hide and seek. Nine maps, each a house of ten rooms with its own story. Start a game for family or friends, play with bots, find a public game, or try Practice."),
       S("🎭", "Your secret role", "Most players are guests. The killer needs to be alone with someone, with a weapon picked up earlier. Some guests get a job: Detective, Doctor, Tracker, Bodyguard, Medium… and the Jester just wants to be voted out."),
-      S("⏱️", "Every hour", "Choose a room, then talk to whoever is there, look around, take or put back an item. You only see what happens in your own room. Tap an emoji to react."),
+      S("🏠", "Walk the house", "The house is a floor plan. Each hour you stay or walk to a room next door, one door at a time; you see who you pass in the doorways, and hear voices next door. The killer knows secret passages."),
+      S("🙈", "Hide and seek", "One seeker counts in the hall, the rest hide: behind the door, under the furniture or in the shadows. A seeker searches one spot an hour; whoever is found joins the hunt. Last one hidden at 5 AM wins."),
       S("🔎", "The meeting and the evidence board", "When a body is found, everyone shares their day. The Board marks every claim that clashes with what you saw. Then vote: most votes is out, a tie means nobody."),
       S("🏅", "Level up", "Every game earns XP. Climb the levels, unlock achievements and badges (other players see your badge in the lobby), and beat the daily challenge to keep your streak."),
       S("🏠", "Play with your family from Homebase", "Open the family chat in Homebase and tap the game button. Alibi opens as the host, and everyone in the family chat gets the code and a Join button."),
